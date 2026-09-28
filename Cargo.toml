@@ -1,0 +1,63 @@
+[package]
+name = "zmap-wake"
+version = "0.0.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Wake: proofs of note lineage on Zcash (separate exploratory project)"
+
+# Pinned to the exact versions in the Zecboat wallet's Cargo.lock so later adoption adds one
+# dependency and changes no versions. `unstable-voting-circuits` exposes note_commit,
+# commit_ivk, constants, RandomSeed::{psi,rcm_v2,rcm_v3} and FullViewingKey::nk().
+[dependencies]
+orchard        = { version = "=0.15.3", features = ["circuit", "unstable-voting-circuits"] }
+halo2_proofs   = { version = "=0.3.2", features = ["batch"] }
+halo2_gadgets  = "=0.5.0"
+pasta_curves   = "=0.5.1"
+sinsemilla     = "=0.1.0"
+zcash_client_sqlite  = { version = "=0.22.0-rc.4", features = ["orchard"] }
+# The sqlite crate implements the backend's WalletWrite; an unpinned backend resolves to
+# 0.24.0 final, whose trait differs (lock_outputs et al.), and the build fails. Pin both.
+zcash_client_backend = { version = "=0.24.0-rc.4", features = ["orchard"] }
+zcash_primitives     = "=0.30.0"
+zcash_protocol       = "=0.10.4"
+zcash_keys           = { version = "=0.16.1", features = ["orchard"] }
+incrementalmerkletree = "=0.8.2"
+rusqlite       = { version = "=0.37.0", features = ["bundled"] }
+rand           = "0.8"
+ff             = "0.13"
+group          = "0.13"
+subtle         = "2"
+blake2b_simd   = "1"
+sha2           = "0.10"
+ed25519-zebra  = "4"
+zcash_note_encryption = "0.4"
+chacha20poly1305 = "=0.10.1"
+base64         = "0.22"
+serde          = { version = "1", features = ["derive"] }
+serde_json     = "1"
+anyhow         = "1"
+tokio          = { version = "1", features = ["rt-multi-thread"], optional = true }
+tonic          = { version = "0.14", features = ["transport"], optional = true }
+
+[features]
+# Test-only: lets a test build a circuit with ONE named constraint removed, so every
+# negative test can show it passes against the broken circuit and fails against the
+# real one (zecboat_wake_circuit.md P3). Never enable in a build that proves or verifies
+# for real; the pinned vk_id test proves the knob changes nothing while unused.
+sabotage = []
+# A lightwalletd (gRPC) oracle. Untested against a live endpoint as of 2026-09-25: none was reachable.
+lightwalletd = ["zcash_client_backend/lightwalletd-tonic-transport", "dep:tokio", "dep:tonic"]
+
+[dev-dependencies]
+# Enable `sabotage` for this crate's own tests only.
+zmap-wake      = { path = ".", features = ["sabotage"] }
+
+[[bin]]
+name = "wake-issuer"
+path = "src/bin/wake-issuer.rs"
+
+[[bin]]
+name = "wake-holder"
+path = "src/bin/wake-holder.rs"
+
+[workspace]

@@ -1,0 +1,88 @@
+   Compiling zmap-wake v0.0.0 (<build directory>)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.64s
+     Running unittests src/lib.rs (target/debug/deps/zmap_wake-ff7b57c7e6a5bded)
+
+running 10 tests
+test keys::tests::vk_ids_are_pinned ... ok
+test wallet_path::tests::historical_path_reaches_the_historical_root ... ok
+test wallet_path::tests::refuses_live_wallet_home ... ok
+test wallet_path::tests::unmarked_position_is_an_error ... ok
+test witness::tests::anchor_matches_library_root ... ok
+test witness::tests::commitment_matches_library_v2_and_v3 ... ok
+test witness::tests::nk_is_fvk_bytes_32_to_64 ... ok
+test witness::tests::nonzero_value_notes_match_library ... ok
+test witness::tests::nullifier_matches_library_v2_and_v3 ... ok
+test witness::tests::v2_derivation_on_v3_note_gives_a_different_commitment ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.89s
+
+     Running tests/positive.rs (target/debug/deps/positive-c52387d626d67c9c)
+
+running 9 tests
+test circuit_cost_recorded ... == CircuitCost hop at K=11
+CircuitCost {
+    k: 11,
+    max_deg: 9,
+    advice_columns: 10,
+    instance_queries: 1,
+    advice_queries: 25,
+    fixed_queries: 28,
+    lookups: 3,
+    permutation_cols: 15,
+    point_sets: 5,
+    max_rows: 1289,
+    max_advice_rows: 1289,
+    max_fixed_rows: 1275,
+    num_fixed_columns: 28,
+    num_advice_columns: 10,
+    num_instance_columns: 1,
+    num_total_columns: 39,
+    _marker: PhantomData<(pasta_curves::curves::Eq, zmap_wake::circuit::Circuit)>,
+}
+== proof size (1 instance): ProofSize { instance: ProofContribution { commitments: 0, evaluations: 1 }, advice: ProofContribution { commitments: 10, evaluations: 25 }, fixed: ProofContribution { commitments: 0, evaluations: 28 }, lookups: ProofContribution { commitments: 9, evaluations: 15 }, equality: ProofContribution { commitments: 3, evaluations: 23 }, vanishing: ProofContribution { commitments: 9, evaluations: 1 }, multiopen: ProofContribution { commitments: 1, evaluations: 5 }, polycomm: ProofContribution { commitments: 23, evaluations: 2 }, _marker: PhantomData<pasta_curves::curves::Eq> }
+== CircuitCost genesis at K=11
+CircuitCost {
+    k: 11,
+    max_deg: 9,
+    advice_columns: 10,
+    instance_queries: 1,
+    advice_queries: 25,
+    fixed_queries: 28,
+    lookups: 3,
+    permutation_cols: 15,
+    point_sets: 5,
+    max_rows: 1289,
+    max_advice_rows: 1289,
+    max_fixed_rows: 1275,
+    num_fixed_columns: 28,
+    num_advice_columns: 10,
+    num_instance_columns: 1,
+    num_total_columns: 39,
+    _marker: PhantomData<(pasta_curves::curves::Eq, zmap_wake::circuit::Circuit)>,
+}
+== proof size (1 instance): ProofSize { instance: ProofContribution { commitments: 0, evaluations: 1 }, advice: ProofContribution { commitments: 10, evaluations: 25 }, fixed: ProofContribution { commitments: 0, evaluations: 28 }, lookups: ProofContribution { commitments: 9, evaluations: 15 }, equality: ProofContribution { commitments: 3, evaluations: 23 }, vanishing: ProofContribution { commitments: 9, evaluations: 1 }, multiopen: ProofContribution { commitments: 1, evaluations: 5 }, polycomm: ProofContribution { commitments: 23, evaluations: 2 }, _marker: PhantomData<pasta_curves::curves::Eq> }
+ok
+test mock_prover_genesis_satisfied_at_k ... ok
+test mock_prover_hop_satisfied_at_k ... ok
+test mock_prover_v2_note_satisfied ... ok
+test non_canonical_instance_is_rejected ... ok
+test proof_of_one_kind_does_not_verify_as_the_other ... ok
+test real_proof_roundtrip_hop_and_genesis ... hop proof 4960 bytes, genesis proof 4960 bytes
+ok
+test the_two_verifying_keys_differ ... vk_id hop     = c10ee672500b17ea7c94376b6bc1ee988870b9354d1bd391ed1f1324c953707f
+vk_id genesis = decb572630f885fd6a98266f5faea215193597eb5e83a6da8e6912bb083334e9
+ok
+test trailing_bytes_are_rejected ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 40.44s
+
+   Doc-tests zmap_wake
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+real	0m53.064s
+user	3m14.514s
+sys	0m3.505s

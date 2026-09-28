@@ -1,0 +1,79 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/zmap_wake-4dde9edf5b0de63b)
+
+running 14 tests
+test lading::tests::unknown_kind_and_circuit_are_rejected ... ok
+test lading::tests::non_canonical_instance_is_rejected ... ok
+test lading::tests::entry_round_trips ... ok
+test lading::tests::hash_is_over_delivered_bytes_not_a_reserialisation ... ok
+test wallet_path::tests::refuses_live_wallet_home ... ok
+test witness::tests::nk_is_fvk_bytes_32_to_64 ... ok
+test witness::tests::v2_derivation_on_v3_note_gives_a_different_commitment ... ok
+test witness::tests::nonzero_value_notes_match_library ... ok
+test witness::tests::anchor_matches_library_root ... ok
+test witness::tests::commitment_matches_library_v2_and_v3 ... ok
+test witness::tests::nullifier_matches_library_v2_and_v3 ... ok
+test wallet_path::tests::unmarked_position_is_an_error ... ok
+test wallet_path::tests::historical_path_reaches_the_historical_root ... ok
+test keys::tests::vk_ids_are_pinned ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.38s
+
+     Running tests/chain.rs (target/debug/deps/chain-3a4934fdbd2b0575)
+
+running 2 tests
+test oracle_failure_is_unverified_not_forged ... ok
+test three_hop_chain_verifies_and_each_failure_has_one_cause ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 34.80s
+
+     Running [redacted: a private real-wallet test, not in the public repository]
+
+running 1 test
+test [redacted: private real-wallet test] ... ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/negative.rs (target/debug/deps/negative-aaf53919e4953b0f)
+
+running 12 tests
+test position_is_witnessed_not_fixed ... ok
+test sabotage_never_breaks_an_honest_circuit ... ok
+test rho_right_in_instance_wrong_inside_commitment ... ok
+test forged_nk ... ok
+test random_instance_nf ... ok
+test value_tampered ... ok
+test split_attempt_second_output_claims_same_nf_prev ... ok
+test v2_witness_for_v3_note ... ok
+test wrong_anchor ... ok
+test wrong_genesis_cmx ... ok
+test wrong_rho_in_instance ... ok
+test wrong_path_one_sibling ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 66.44s
+
+     Running tests/positive.rs (target/debug/deps/positive-c57fdb48bbcddc72)
+
+running 9 tests
+test circuit_cost_recorded ... ok
+test mock_prover_hop_satisfied_at_k ... ok
+test mock_prover_genesis_satisfied_at_k ... ok
+test mock_prover_v2_note_satisfied ... ok
+test trailing_bytes_are_rejected ... ok
+test non_canonical_instance_is_rejected ... ok
+test the_two_verifying_keys_differ ... ok
+test proof_of_one_kind_does_not_verify_as_the_other ... ok
+test real_proof_roundtrip_hop_and_genesis ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.96s
+
+   Doc-tests zmap_wake
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+real	2m14.817s
+user	14m14.445s
+sys	0m3.744s

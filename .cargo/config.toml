@@ -1,0 +1,7 @@
+[build]
+# Keep this crate's artifacts out of any wallet target dir.
+target-dir = "target"
+
+[profile.dev.package."*"]
+# Halo 2 and orchard are unusably slow unoptimised, even for tests.
+opt-level = 3
