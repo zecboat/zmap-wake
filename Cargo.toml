@@ -1,9 +1,9 @@
 [package]
 name = "zmap-wake"
-version = "0.0.0"
+version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-description = "Wake: proofs of note lineage on Zcash (separate exploratory project)"
+description = "Wake: proofs of note lineage on Zcash (draft for external review)"
 
 # Pinned to the exact versions in the Zecboat wallet's Cargo.lock so later adoption adds one
 # dependency and changes no versions. `unstable-voting-circuits` exposes note_commit,

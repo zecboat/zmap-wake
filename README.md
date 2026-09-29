@@ -76,3 +76,11 @@ Pinned to the exact versions in the Zecboat wallet's `Cargo.lock`: `orchard =0.1
 `unstable-voting-circuits`, `halo2_proofs =0.3.2`, `halo2_gadgets =0.5.0`,
 `pasta_curves =0.5.1`, `zcash_client_sqlite =0.22.0-rc.4` with `zcash_client_backend
 =0.24.0-rc.4` (both must be pinned together). `cargo tree -d` shows one version of each.
+
+## Specification, trust model, licence
+
+- `docs/WAKE-v1.md`: the specification (draft for external review).
+- `docs/TRUST_MODEL.md`: who is trusted for what, and what each result means.
+- `docs/REVIEW_PACKAGE.md`: where a reviewer starts.
+- Build with the toolchain in `rust-toolchain.toml`.
+- Licensed under either of MIT (`LICENSE-MIT`) or Apache-2.0 (`LICENSE-APACHE`), at your option.
