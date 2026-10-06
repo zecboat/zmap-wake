@@ -37,7 +37,7 @@ serde          = { version = "1", features = ["derive"] }
 serde_json     = "1"
 anyhow         = "1"
 tokio          = { version = "1", features = ["rt-multi-thread"], optional = true }
-tonic          = { version = "0.14", features = ["transport"], optional = true }
+tonic          = { version = "0.14", features = ["transport", "tls-ring", "tls-webpki-roots"], optional = true }
 
 [features]
 # Test-only: lets a test build a circuit with ONE named constraint removed, so every
@@ -46,7 +46,7 @@ tonic          = { version = "0.14", features = ["transport"], optional = true }
 # for real; the pinned vk_id test proves the knob changes nothing while unused.
 sabotage = []
 # A lightwalletd (gRPC) oracle. Untested against a live endpoint as of 2026-09-25: none was reachable.
-lightwalletd = ["zcash_client_backend/lightwalletd-tonic-transport", "dep:tokio", "dep:tonic"]
+lightwalletd = ["zcash_client_backend/lightwalletd-tonic-transport", "zcash_client_backend/lightwalletd-tonic-tls-webpki-roots", "dep:tokio", "dep:tonic"]
 
 [dev-dependencies]
 # Enable `sabotage` for this crate's own tests only.
@@ -61,3 +61,7 @@ name = "wake-holder"
 path = "src/bin/wake-holder.rs"
 
 [workspace]
+
+[[example]]
+name = "light_verify"
+required-features = ["lightwalletd"]

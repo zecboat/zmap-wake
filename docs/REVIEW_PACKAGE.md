@@ -2,7 +2,8 @@
 
 **Status: DRAFT. Not reviewed. Nothing that depends on this crate may report "verified"
 until §11 of `../../WAKE-v1.md` has happened.** This file is the index a reviewer reads first.
-Assembled 2026-09-25.
+Assembled 2026-09-25; brought up to date 2026-10-06 (chain access through a light server, and
+Knotline v1: see "Added since the first package" below).
 
 ## The question
 
@@ -64,10 +65,14 @@ repository.
 
 ## What a lading discloses (the privacy question, answered precisely)
 
-- **To the chain: nothing.** Proofs are off-chain. The memo carries only the consignment
-  hash, encrypted to the recipient. Action pairing (§5.5) is invisible: ρ is inside the
-  commitment. A v0.5 transfer is indistinguishable on chain from any other Ironwood
+- **To the chain, when the lading is delivered off-chain: nothing.** The memo carries only
+  the consignment hash, encrypted to the recipient. Action pairing (§5.5) is invisible: ρ is
+  inside the commitment. Such a transfer is indistinguishable on chain from any other Ironwood
   transaction.
+- **To the chain, with Knotline v1: the shape, not the content.** The transfer carries twelve
+  more outputs than a plain one (its proof, sealed, and the key for the recipient), so it can
+  be recognised as a transfer of this kind. Nobody but the holders from that transfer onward
+  can read the proof. `KNOTLINE-v1.md` §6, §7 and §10; unreviewed.
 - **To the recipient, in v1: the transaction graph of that unit.** Each hop exposes
   `(nf_prev, nf)`. Nullifiers are public already; the chain does not reveal which output a
   spent nullifier produced, and the pair does. Not addresses, values or keys.
@@ -83,7 +88,9 @@ repository.
 ## Known limitations, stated so nobody assumes otherwise
 
 - No external review has happened. This package is the input to one.
-- The lightwalletd oracle compiles and is untested against an endpoint.
+- The lightwalletd oracle has been run against public mainnet servers since 2026-10-05
+  (`examples/light_verify.rs`); it relays the server's word and can never yield Verified.
+- Knotline v1 has had no outside review of any kind.
 - The layout diagram has not been rendered (offline; needs `plotters`).
 - `WAKE-v1.md` §7.2 gained `anchor_height`; §12.3 of ZMAP gained the first-holder rule.
   Both are errata to a draft, not versions.
@@ -97,3 +104,33 @@ completed 2025-01-03 (`../../other_custom_circuits.md` §2). Ask ZCG whether the
 open to an overlay project. Zcash Coin Voting shipped a custom Halo 2 circuit on the same
 crate and feature (`voting-circuits 0.12.1`); its author is the one person who has done this
 against this crate version.
+
+## Added since the first package (2026-10-06)
+
+Nothing here changes the circuits, the keys, the prover or the witness: `src/circuit.rs`,
+`src/keys.rs`, `src/prove.rs`, `src/witness.rs` and both pinned verifying keys are unchanged
+since the first package, and the `vk_id`s above still hold.
+
+| What | Where | Why a reviewer may care |
+|---|---|---|
+| Chain access through a light server | `src/oracle_lightwalletd.rs`, `src/oracle.rs` (`OracleTrust`, `is_local_url`) | Decides which results may be called Verified. A zebrad that is not on loopback is now `ServerAsserted`. Transactions from a server are checked against their id |
+| `WAKE-v1.md` §8.1 amended | `docs/WAKE-v1.md` | A named "checked via provider" state between Verified and Unverified |
+| `WAKE-v1.md` §7.3: canonical serialisation of a lading | `docs/WAKE-v1.md`, `src/lading.rs` | Knotline's recipient rebuilds the lading and compares hashes, so the bytes must be reproducible |
+| **Knotline v1**: the lading carried on chain, one sealed proof per transfer | `docs/KNOTLINE-v1.md`, `src/knotline.rs` | New construction, frozen wire format, privacy claims unreviewed |
+
+Questions on Knotline, in order:
+
+1. The only encryption of a knot is Zcash note encryption to an address whose spending key is
+   derived from the knot's random key (`knot_keys`). Is there a pitfall in a derived,
+   never-spent address used this way, or in handing the 32-byte key to the recipient in a memo?
+2. Does the chain of keys give what §6 of the specification claims: an earlier holder cannot
+   read, or even recognise, later knots?
+3. `unpack_knot`, `from_memos` and `walk_back` parse data from the chain. Are all lengths and
+   counts bounded, and can a crafted knot make a reader loop, over-allocate or accept a
+   partial lading?
+4. Is anything in a knot or in the key memo distinguishable to someone without the key, beyond
+   the number of outputs?
+
+Evidence: `cargo test --lib knotline` (round trips, refusals, and `v1_format_is_frozen`, which
+pins the address derivation, both knot layouts and the canonical lading by hash). Three mainnet
+transactions made with a throwaway test item are listed in `KNOTLINE-v1.md` §9.

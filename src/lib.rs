@@ -17,6 +17,7 @@
 //! - **6, the lading and the verifier.** [`lading`]: the delivered format and its hash.
 //!   [`oracle`]: the [`oracle::ChainOracle`] trait and a zebrad implementation.
 //!   [`verify::verify_chain`]: W1–W5 with named failures.
+//! - [`knotline`]: Knotline v1 (`docs/KNOTLINE-v1.md`), the lading carried on chain as sealed knots.
 //! - **7, tool.** `tests/mainnet_wake_test_001.rs` (ignored; needs a zebrad, and wallet COPIES to rebuild).
 //! - **9, the issuer side.** [`wallet_notes`]: notes and witnesses from a wallet COPY.
 //!   [`pin`]: the §7.3 on-chain manifest pin. [`attest`]: the bridge attestation.
@@ -33,6 +34,7 @@ pub mod attest;
 pub mod circuit;
 pub mod keys;
 pub mod lading;
+pub mod knotline;
 pub mod manifest;
 pub mod oracle;
 #[cfg(feature = "lightwalletd")]

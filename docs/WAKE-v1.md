@@ -1,20 +1,29 @@
 # WAKE v1 — proofs of note lineage on Zcash
 
-> **STATUS: DRAFT FOR EXTERNAL REVIEW.** Part of Zecboat v0.7.0. Until the review is published,
-> wallets show a passing lineage as "awaiting external review", never "verified" (§11).
+> **STATUS: DRAFT FOR EXTERNAL REVIEW.** Part of Zecboat 0.7.1 (beta). Until the review is
+> published, wallets show a passing lineage as "awaiting external review", never "verified"
+> (§11). Both circuits, the prover, the verifier, the oracles and the seal are built in this
+> repository; the text was brought in line with that code on 2026-10-02.
+>
+> **2026-10-06:** §7.3 gains the canonical serialisation of a lading and its publication
+> rule is restated for Knotline v1 (`KNOTLINE-v1.md`). No change to the circuits or W1–W5.
+>
+> **2026-10-06:** §8.1 amended: a result obtained through a server may be reported under its
+> own named state, never as Verified. No change to the circuits, the lading or W1–W5.
 
 **Status: DRAFT. Not published. No external security review has been performed.**
-A missing constraint in this circuit is a forgery. Implement nothing that depends on it for a
-"verified" claim until §11's review has happened.
+A missing constraint in this circuit is a forgery. The wallet therefore shows every Wake
+verdict in amber ("checked by the holder's wallet, not yet externally reviewed",
+`WAKE_REVIEWED = false`) until §11's review has happened.
 
 | | |
 |---|---|
 | Version | 1 (draft) |
-| Date | 2026-09-24 |
+| Date | 2026-09-24; revised 2026-10-02 to match the code; amended 2026-10-06 (§7.3, §8.1) |
 | Network | Zcash mainnet, NU6.3 "Ironwood" and later; Orchard and Ironwood pools |
 | Proof system | Halo 2, inner-product argument over the Pallas/Vesta cycle, no trusted setup |
-| Reference implementation | `zmap-wake` (planned; build plan in `zecboat_wake_circuit.md`) |
-| Used by | ZMAP v0.5 §9 check 7, §15, as `proof_kind: "wake-v1"` |
+| Reference implementation | `zmap-wake` (built; `circuit.rs`, `prove.rs`, `verify.rs`, `oracle.rs`, `oracle_lightwalletd.rs`, `seal.rs`, `lading.rs`, `keys.rs`, `witness.rs`, `knotline.rs`) |
+| Used by | ZMAP v0.5 §9 check 7 and §15: the ZMAP consignment **is** the §7.3 lading, each proof `kind: "wake-v1"` |
 | Licence of this document | Public. Implement it freely, with or without attribution. |
 
 ---
@@ -185,7 +194,19 @@ W2 is computed from it. `zmap-wake` writes and requires this field.
 - `hops[j].instance[1]` MUST equal `hops[j-1].instance[2]` for `j ≥ 1` (the chain rule).
 - The lading hash is `SHA-256` over the lading bytes **exactly as delivered**. Never
   re-serialise before hashing.
-- A lading MUST NOT be published. The `(nf_prev, nf)` pairs in it link transactions.
+- **Canonical serialisation (added 2026-10-06, for Knotline v1).** A lading that travels as
+  knots is rebuilt by its recipient, so its bytes must be reproducible from its content. The
+  canonical form is JSON in UTF-8 exactly as the reference writes it: the members in the order
+  shown above (`wake_lading`, `genesis` with `txid` then `action_index`, `hops`; each hop with
+  `kind`, `circuit`, `instance`, `anchor_height`, `proof`), two spaces of indentation per
+  level, one member or array element per line, one space after each colon, no trailing
+  newline; hex in lower case; base64 standard with padding. An implementation that extends a
+  lading MUST write the result in this form. (Reference: `Lading::to_bytes`; pinned by the
+  `v1_format_is_frozen` test in `knotline.rs`.)
+- A lading MUST NOT be published in a form anyone but the note's holders can read. The
+  `(nf_prev, nf)` pairs in it link transactions. (Until 2026-10-06 this read "MUST NOT be
+  published". Knotline v1 writes each hop to the chain sealed under a per-hop key that only
+  the holders from that hop onward ever receive; see `KNOTLINE-v1.md`.)
 
 ### 7.4 Verifying-key identifier
 
@@ -212,6 +233,14 @@ Rules:
   is not guaranteed stable across library versions while the pinned rendering is defined as
   the stable identity of a circuit's shape.
 
+**Published identifiers of the reference circuits** (`zmap-wake/src/keys.rs`, `k = 11`, pinned
+by a test that regenerates the keys):
+
+```
+WAKE_HOP      c10ee672500b17ea7c94376b6bc1ee988870b9354d1bd391ed1f1324c953707f
+WAKE_GENESIS  decb572630f885fd6a98266f5faea215193597eb5e83a6da8e6912bb083334e9
+```
+
 ## 8. Verification procedure
 
 Given a lading, the note in hand (specifically its `ρ`), and an oracle the verifier chooses:
@@ -224,7 +253,12 @@ Given a lading, the note in hand (specifically its `ρ`), and an oracle the veri
 | W4 | for each `j ≥ 1`: `hops[j].instance[1] == hops[j-1].instance[2]` | `ChainBreak(j)` |
 | W5 | the note in hand has `ρ == hops[last].instance[2]` | `RhoMismatch` |
 
-- `MIN_DEPTH` is 100. A proof against a shallower anchor is not wrong; it is not yet safe.
+- `MIN_DEPTH` is 100 (`oracle.rs`). A proof against a shallower anchor is not wrong; it is
+  not yet safe. It is a **block** count, deliberately: the rule guards against reorgs, which
+  are measured in blocks. Under NU7's 25-second blocks (ZIP 218, from about 5 November 2026)
+  100 blocks is 42 minutes instead of 125; still far beyond any mainnet reorg. Depth is `tip − anchor_height` (§7.2 erratum). The reference prover anchors
+  each hop at the block in which that carrier was mined, so a freshly received unit shows
+  *too shallow* for about 100 blocks and then verifies, with no re-proving.
 - Nullifier-set membership is **not** checked. Membership of `N_{j+1}` with `ρ = nf_j` implies
   `nf_j` was revealed, by consensus. Omitting the lookup removes one thing an oracle can lie about.
 - A verifier MUST report *which* check failed. `GenesisNotOnChain` and `BadProof` are evidence
@@ -237,8 +271,25 @@ The oracle answers two questions: *is this a root of the pool's commitment tree 
 height h*, and *what is the extracted commitment at output (txid, index)*. A full node answers
 both from its own state. A light client answers them from a server and MUST either verify tree
 roots against the block-header chain (ZIP 221 history commitments) or report the result as
-**unverified**, never as verified. A prover who also controls the verifier's server can
-otherwise supply a fabricated root matching a fabricated proof.
+not verified by the holder's own node (see below), never as verified. A prover who also
+controls the verifier's server can otherwise supply a fabricated root matching a fabricated
+proof.
+
+**Which oracle is "a full node".** The reference carries two oracles and a trust level with
+each answer (`OracleTrust::FullNode` / `ServerAsserted`, `oracle.rs`). `ZebradOracle` (zebrad
+JSON-RPC) is `FullNode` **only when its URL is loopback** (`127.0.0.0/8`, `::1`, `localhost`,
+`is_local_url`); a zebrad reached over the LAN or the internet is somebody else's node and is
+`ServerAsserted`, as `LightwalletdOracle` always is. (Review M3, 2026-10-02: before this, any
+URL given as "zebrad" was trusted.)
+
+**Reporting a `ServerAsserted` result.** A `ServerAsserted` result that passes W1–W5 MUST NOT
+be reported as Verified. An implementation MAY report it under a distinct, named state
+("checked via provider") provided that the report (a) names the endpoint that answered,
+(b) says that the chain's answers were not checked by a node the holder runs, and (c) cannot
+be mistaken for the Verified state in wording, colour or mark. An implementation that offers
+no such state reports the result as **Unverified**. (Amended 2026-10-06. Until then every `ServerAsserted` result was reported Unverified, which made a lineage
+that passed all five checks through a light server look the same as one that could not be
+checked at all. Zecboat 0.7.1 reports it as `ProviderChecked`, "via your provider".)
 
 ## 9. Security considerations
 
@@ -253,10 +304,16 @@ otherwise supply a fabricated root matching a fabricated proof.
   settle that question themselves.
 - **Reorgs.** A proof against a rolled-back anchor fails W2. Only the prover can re-prove, which
   needs the note's path; provers SHOULD prove before spending, while the path is held.
+- **A proof for a spend that never happened.** The reference proves and stores the extended
+  lading before the transaction is broadcast. If that transaction expires unmined, the stored
+  lading names a hop that does not exist; an overlay MUST tie the stored lading to the
+  transaction id and MUST NOT present it once that transaction has expired (ZMAP §15; review
+  H2, 2026-10-02).
 - **Privacy of a v1 lading.** The recipient of a lading learns the lineage's nullifiers and
   hence which transactions carried the note, not who made them or what else they contained.
-  Nothing in a lading identifies an address, a value, or a key. Publishing a lading would let
-  anyone link those transactions; hence §7.3's rule.
+  Nothing in a lading identifies an address, a value, or a key. Publishing a lading in the
+  clear would let anyone link those transactions; hence §7.3's rule. Knotline v1 keeps to it by
+  sealing each hop; what a chain server can still observe is set out in `KNOTLINE-v1.md` §7.
 - **`nk` exposure.** `nk` is a witness and never appears in an instance. Implementations MUST
   ensure no gadget copies it to a public cell. Leaking `nk` lets anyone compute the nullifier
   of every note the holder owns.
@@ -292,6 +349,44 @@ Before any implementation reports "verified" on the strength of a wake proof:
    witnessed `nk`, or with `cm` not in the tree at `anchor`?"*
 5. Published `vk_id`s and a mainnet test vector: one real hop on Zcash mainnet, lading and
    note `ρ` given, verifiable by anyone with a node.
+
+**Where this stands, 2026-10-02.** Items 1–3 and the `vk_id`s of item 5 are in the review
+package: `tests/negative.rs`, the equivalence tests in `src/witness.rs`
+(`commitment_matches_library_v2_and_v3`, `nullifier_matches_library_v2_and_v3`), and the
+constraint listing and diff against `orchard/src/circuit.rs` in `docs/`. Two mainnet vectors
+made with throwaway items are in `docs/test_vector/`: Wake Test #004 (genesis only) and Wake
+Test #001 (genesis and two hops; `tests/mainnet_wake_test_001.rs`). Item 4 has not happened. The internal review of 2026-10-02 found no
+Critical and left these questions for the external reviewer, in order:
+
+1. **Free `nk`, free `pk_d`, no `CommitIvk`: is `DeriveNullifier` collision-resistant against
+   a chosen-key adversary?** In `WAKE_HOP` the witnesses `nk`, `pk_d`, `ψ`, `rcm` are
+   unconstrained beyond the relation itself, and Orchard dummy spends (`v = 0`, Merkle path
+   skipped) let any chain participant reveal the nullifier of a note they fabricate with chosen
+   `nk_d, ρ_d, ψ_d, rcm_d`. Can any party, **without spending the real note `N_j`**, create an
+   on-chain note `N'` whose `ρ` equals a Wake-claimed `nf` for some `nk'` of their choosing, or
+   equivalently find two `DeriveNullifier` inputs that collide in `Extract_P([·]K + cm)`?
+   State the exact assumption (Pallas discrete log + Poseidon as a PRF + Sinsemilla binding)
+   and whether the Orchard security argument already implies it. Every other check assumes
+   "only the holder who spends `N_j` can produce the next `ρ`".
+2. **Cell identity of `ρ`.** `rho_old` is copy-constrained, not re-witnessed, inside
+   `note_commit` and inside `derive_nullifier`, so `constrain_instance(rho_old, LINK)` cannot
+   be met with a `ρ` that differs from the one in the commitment. Is
+   `negative.rs::rho_right_in_instance_wrong_inside_commitment` a sharp test of that?
+3. **Canonical equality.** The instance is compared as a field element; `ρ` inside the
+   commitment is a 255-bit decomposition with canonicity gates. No bit-string alias
+   (`ρ ≥ p`) satisfies one and not the other?
+4. **Unconditional `root = anchor`.** `root` is the Merkle gadget's depth-32 output, and the
+   second `MerkleChip`/Sinsemilla configuration left over from the deletion introduces no
+   unconstrained region.
+5. **Genesis with the identity point.** `cm_old` admits the identity; can `extract_p = 0`
+   match a `cmx_0 = 0`?
+6. **Deleted gates, remaining columns.** After removing `q_orchard`, `CommitIvk`, the second
+   `NoteCommit` and the variable-base multiplication, are any selectors still enabled whose
+   gates assume a row layout that no longer holds at `K = 11`?
+7. **Zero knowledge.** Nothing about `pos`, `path`, `v`, `pk_d` leaks beyond the instance, and
+   `anchor` plus `anchor_height` do not let the recipient narrow the note's position.
+
+The full argument behind each is in the review file.
 
 ## 12. Versioning
 
@@ -329,6 +424,8 @@ opens its own `C` to the next). Analysis and comparison: kept by the maintainers
 - Zcash Coin Voting, `voting-circuits 0.12.1` and `zcash_voting 5.0.2` (MIT OR Apache-2.0):
   a shipped custom Halo 2 circuit over Orchard notes on the same crate and feature; the source
   of §6's witness derivation pattern and §7.4's fingerprint mechanism.
-- ZMAP v0.5: §5.5, §9 check 7, §12.3, §15.
+- ZMAP v0.5: §5.3 (transfer memo), §5.5, §9 check 7, §12.3, §15.
+- The maintainers' internal review of 2026-10-02, which the 2026-10-02 revision answers (not
+  published; its open questions are listed in §11).
 - Peter Todd, single-use seals; RGB and Taproot Assets, for the client-side-validation model
   WAKE follows and the on-chain ownership graph it does not expose.

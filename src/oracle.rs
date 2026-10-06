@@ -7,8 +7,10 @@
 //! result as *unverified*, never as verified.
 //!
 //! Provided here: [`ChainOracle`], the trait `verify_chain` consumes, and
-//! [`ZebradOracle`], a zebrad (zcashd-compatible) JSON-RPC implementation that
-//! shells out to `curl`. With the `lightwalletd` feature, [`LightwalletdOracle`]
+//! [`ZebradOracle`], a zebrad (zcashd-compatible) JSON-RPC implementation. A plain
+//! `http://` address, the normal case of a node on this machine, is asked directly;
+//! only an `https://` address still shells out to `curl`. With the `lightwalletd`
+//! feature, [`LightwalletdOracle`]
 //! speaks gRPC to a lightwalletd or Zaino; it reports [`OracleTrust::ServerAsserted`]
 //! because it does not check roots against block headers.
 
@@ -101,26 +103,20 @@ impl ZebradOracle {
 
     /// Raw JSON-RPC call. Returns the `result` value or the node's error.
     pub fn rpc(&self, method: &str, params: Value) -> Result<Value> {
-        let body = json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params });
-        let out = Command::new("curl")
-            .args([
-                "-s",
-                "--max-time",
-                "60",
-                "-u",
-                "x:x",
-                "-H",
-                "content-type: application/json",
-                "--data",
-                &body.to_string(),
-                &self.url,
-            ])
-            .output()
-            .context("run curl")?;
-        if !out.status.success() {
-            bail!("curl exited with {}", out.status);
-        }
-        let v: Value = serde_json::from_slice(&out.stdout)
+        let body = json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params }).to_string();
+        let stdout = if self.url.starts_with("http://") {
+            http_post_json(&self.url, &body)?
+        } else {
+            let out = Command::new("curl")
+                .args(["-s", "--max-time", "60", "-u", "x:x", "-H", "content-type: application/json", "--data", &body, &self.url])
+                .output()
+                .context("run curl")?;
+            if !out.status.success() {
+                bail!("no node answered at {} (curl: {})", self.url, out.status);
+            }
+            out.stdout
+        };
+        let v: Value = serde_json::from_slice(&stdout)
             .with_context(|| format!("parse RPC response to {method}"))?;
         if let Some(err) = v.get("error").filter(|e| !e.is_null()) {
             bail!("{method}: node error {err}");
@@ -184,6 +180,27 @@ impl ZebradOracle {
         Ok(ts)
     }
 
+    /// The raw bytes of a mined transaction and its height; `None` if not known as mined.
+    /// `txid_hex` in display order.
+    pub fn raw_transaction(&self, txid_hex: &str) -> Result<Option<(u32, Vec<u8>)>> {
+        let v = match self.rpc("getrawtransaction", json!([txid_hex, 1])) {
+            Ok(v) => v,
+            Err(e) if e.to_string().contains("node error") => return Ok(None),
+            Err(e) => return Err(e),
+        };
+        let Some(height) = v.get("height").and_then(Value::as_u64) else {
+            return Ok(None);
+        };
+        let hex = v.get("hex").and_then(Value::as_str).ok_or_else(|| anyhow!("getrawtransaction: no hex"))?;
+        if hex.len() % 2 != 0 {
+            bail!("getrawtransaction: odd-length hex");
+        }
+        let raw = (0..hex.len() / 2)
+            .map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).context("hex"))
+            .collect::<Result<Vec<u8>>>()?;
+        Ok(Some((height as u32, raw)))
+    }
+
     /// The Ironwood Actions of a mined transaction, and the height it was mined at.
     /// `None` if the node does not know the transaction as mined.
     pub fn ironwood_actions(&self, txid_hex: &str) -> Result<Option<(u32, Vec<IronwoodAction>)>> {
@@ -219,9 +236,107 @@ impl ZebradOracle {
     }
 }
 
+/// POST a JSON body to a plain `http://host[:port][/path]` address and return the response
+/// body. Small on purpose: one request, `Connection: close`, no redirects. It exists so that a
+/// wallet asking a node on its own machine does not depend on an external program.
+fn http_post_json(url: &str, body: &str) -> Result<Vec<u8>> {
+    use std::io::{Read, Write};
+    use std::net::{TcpStream, ToSocketAddrs};
+    use std::time::Duration;
+
+    let rest = url.strip_prefix("http://").ok_or_else(|| anyhow!("{url}: not an http:// address"))?;
+    let (hostport, path) = match rest.find('/') {
+        Some(i) => (&rest[..i], &rest[i..]),
+        None => (rest, "/"),
+    };
+    let with_port = if hostport.rsplit_once(':').map(|(_, p)| p.parse::<u16>().is_ok()).unwrap_or(false) {
+        hostport.to_string()
+    } else {
+        format!("{hostport}:80")
+    };
+    let mut last = None;
+    let mut stream = None;
+    for addr in with_port.to_socket_addrs().with_context(|| format!("{url}: cannot resolve the address"))? {
+        match TcpStream::connect_timeout(&addr, Duration::from_secs(5)) {
+            Ok(s) => {
+                stream = Some(s);
+                break;
+            }
+            Err(e) => last = Some(e),
+        }
+    }
+    let mut stream = stream.ok_or_else(|| match last {
+        Some(e) => anyhow!("no node answered at {url} ({e})"),
+        None => anyhow!("no node answered at {url}"),
+    })?;
+    stream.set_read_timeout(Some(Duration::from_secs(60)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(60)))?;
+    // `x:x`, as the curl call sent: zebrad ignores it unless cookie authentication is on.
+    let request = format!(
+        "POST {path} HTTP/1.1\r\nHost: {hostport}\r\nAuthorization: Basic eDp4\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    stream.write_all(request.as_bytes()).with_context(|| format!("{url}: send"))?;
+    let mut raw = Vec::new();
+    stream.read_to_end(&mut raw).with_context(|| format!("{url}: read"))?;
+
+    let split = raw.windows(4).position(|w| w == b"\r\n\r\n").ok_or_else(|| anyhow!("{url}: not an HTTP response"))?;
+    let head = String::from_utf8_lossy(&raw[..split]).to_string();
+    let payload = &raw[split + 4..];
+    let status = head.lines().next().unwrap_or("").split_whitespace().nth(1).unwrap_or("").to_string();
+    if status == "401" || status == "403" {
+        bail!("the node at {url} refused the request (HTTP {status}); it may require cookie authentication");
+    }
+    let chunked = head
+        .lines()
+        .any(|l| l.to_ascii_lowercase().starts_with("transfer-encoding:") && l.to_ascii_lowercase().contains("chunked"));
+    if !chunked {
+        return Ok(payload.to_vec());
+    }
+    let mut out = Vec::new();
+    let mut i = 0;
+    loop {
+        let line_end = payload[i..].windows(2).position(|w| w == b"\r\n").ok_or_else(|| anyhow!("{url}: bad chunked response"))? + i;
+        let size_text = String::from_utf8_lossy(&payload[i..line_end]);
+        let size = usize::from_str_radix(size_text.split(';').next().unwrap_or("").trim(), 16)
+            .map_err(|_| anyhow!("{url}: bad chunk size"))?;
+        if size == 0 {
+            return Ok(out);
+        }
+        let start = line_end + 2;
+        let end = start.checked_add(size).filter(|e| *e <= payload.len()).ok_or_else(|| anyhow!("{url}: truncated chunk"))?;
+        out.extend_from_slice(&payload[start..end]);
+        i = end + 2;
+        if i > payload.len() {
+            bail!("{url}: truncated chunked response");
+        }
+    }
+}
+
+/// Whether `url` points at this machine: loopback (127.0.0.0/8, `::1`) or `localhost`.
+///
+/// WAKE-v1 §8.1: anchors count as self-validated only when the oracle is a node the verifier
+/// runs. A zebrad reached over the network is someone else's word, however it is configured.
+pub fn is_local_url(url: &str) -> bool {
+    let rest = url.split("://").nth(1).unwrap_or(url);
+    let hostport = rest.split('/').next().unwrap_or("");
+    let host = if let Some(h) = hostport.strip_prefix('[') {
+        h.split(']').next().unwrap_or("")
+    } else {
+        hostport.rsplit_once(':').map(|(h, _)| h).unwrap_or(hostport)
+    };
+    host.eq_ignore_ascii_case("localhost") || host == "::1" || host.starts_with("127.")
+}
+
 impl ChainOracle for ZebradOracle {
+    /// Full-node trust only for a zebrad on this machine (review M3, 2026-10-02): before, any
+    /// URL in `ZECBOAT_ZEBRAD_RPC` yielded the strongest badge.
     fn trust(&self) -> OracleTrust {
-        OracleTrust::FullNode
+        if is_local_url(&self.url) {
+            OracleTrust::FullNode
+        } else {
+            OracleTrust::ServerAsserted
+        }
     }
 
     fn anchor_at(&self, root: &Anchor, height: u32) -> Result<AnchorStatus> {
@@ -274,4 +389,98 @@ pub fn hex(bytes: &[u8]) -> String {
 pub fn reversed(mut b: [u8; 32]) -> [u8; 32] {
     b.reverse();
     b
+}
+
+#[cfg(test)]
+mod trust_tests {
+    use super::*;
+
+    #[test]
+    fn only_a_node_on_this_machine_is_a_full_node() {
+        for u in ["http://127.0.0.1:8232", "http://localhost:8232", "http://[::1]:8232", "https://127.5.6.7/"] {
+            assert!(is_local_url(u), "{u}");
+        }
+        for u in ["http://192.168.1.10:8232", "https://zec.rocks:443", "http://zebrad.lan:8232", "http://1270.0.0.1:8232"] {
+            assert!(!is_local_url(u), "{u}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod http_tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    /// Serve one canned response on a loopback port and hand back what the client sent.
+    fn serve_once(response: &'static [u8]) -> (String, std::thread::JoinHandle<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let handle = std::thread::spawn(move || {
+            let (mut s, _) = listener.accept().unwrap();
+            let mut seen = Vec::new();
+            let mut buf = [0u8; 4096];
+            // Read the head, then exactly Content-Length bytes of body.
+            loop {
+                let n = s.read(&mut buf).unwrap();
+                seen.extend_from_slice(&buf[..n]);
+                if let Some(i) = seen.windows(4).position(|w| w == b"\r\n\r\n") {
+                    let head = String::from_utf8_lossy(&seen[..i]).to_ascii_lowercase();
+                    let len: usize = head
+                        .lines()
+                        .find_map(|l| l.strip_prefix("content-length:"))
+                        .map(|v| v.trim().parse().unwrap())
+                        .unwrap_or(0);
+                    if seen.len() >= i + 4 + len || n == 0 {
+                        break;
+                    }
+                }
+            }
+            s.write_all(response).unwrap();
+            String::from_utf8_lossy(&seen).to_string()
+        });
+        (url, handle)
+    }
+
+    #[test]
+    fn a_plain_response_is_read_and_the_request_is_well_formed() {
+        let (url, h) = serve_once(b"HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 39\r\n\r\n{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":3507000}");
+        let tip = ZebradOracle::new(url).tip_height().unwrap();
+        assert_eq!(tip, 3_507_000);
+        let sent = h.join().unwrap();
+        assert!(sent.starts_with("POST / HTTP/1.1\r\n"), "{sent}");
+        assert!(sent.contains("\"method\":\"getblockcount\""), "{sent}");
+        assert!(sent.contains("Connection: close"), "{sent}");
+    }
+
+    #[test]
+    fn a_chunked_response_is_reassembled() {
+        let (url, h) = serve_once(b"HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\n14\r\n{\"jsonrpc\":\"2.0\",\"id\r\n13\r\n\":1,\"result\":12345}\r\n0\r\n\r\n");
+        assert_eq!(ZebradOracle::new(url).tip_height().unwrap(), 12_345);
+        h.join().unwrap();
+    }
+
+    #[test]
+    fn a_node_error_is_reported_as_the_nodes_error() {
+        let (url, h) = serve_once(b"HTTP/1.1 200 OK\r\ncontent-length: 74\r\n\r\n{\"jsonrpc\":\"2.0\",\"id\":1,\"error\":{\"code\":-5,\"message\":\"No such transaction\"}}");
+        let e = ZebradOracle::new(url).rpc("getrawtransaction", json!(["00", 1])).unwrap_err().to_string();
+        assert!(e.contains("node error"), "{e}");
+        h.join().unwrap();
+    }
+
+    #[test]
+    fn a_refused_request_says_so() {
+        let (url, h) = serve_once(b"HTTP/1.1 401 Unauthorized\r\ncontent-length: 0\r\n\r\n");
+        let e = ZebradOracle::new(url).tip_height().unwrap_err().to_string();
+        assert!(e.contains("refused the request"), "{e}");
+        h.join().unwrap();
+    }
+
+    #[test]
+    fn no_node_is_said_in_plain_words() {
+        // Bind, read the port, drop the listener: nothing answers there now.
+        let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+        let e = ZebradOracle::new(format!("http://127.0.0.1:{port}")).tip_height().unwrap_err().to_string();
+        assert!(e.starts_with("no node answered at http://127.0.0.1:"), "{e}");
+    }
 }

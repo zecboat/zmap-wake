@@ -213,7 +213,7 @@ mod tests {
     /// The separation guard: a path under `.AppVault` is refused before any I/O.
     #[test]
     fn refuses_live_wallet_home() {
-        let r = open_wallet_copy("/home/nobody/.AppVault/data/wallet.db", Network::MainNetwork);
+        let r = open_wallet_copy("/nonexistent/.AppVault/data/wallet.db", Network::MainNetwork);
         assert!(r.is_err());
     }
 }

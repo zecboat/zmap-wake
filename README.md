@@ -16,7 +16,8 @@ depends on this crate may report "verified" before `WAKE-v1.md` §11 has happene
 | `circuit` | 4 | `WAKE_HOP` / `WAKE_GENESIS`, orchard's Action circuit by deletion (`docs/diff_vs_orchard_circuit.md`) |
 | `keys`, `prove`, `verify` | 4 | cached keys, pinned `vk_id`s, proving, verifying |
 | `lading` | 6 | the delivered format; hash over raw bytes; `anchor_height` per entry |
-| `oracle`, `oracle_lightwalletd` | 6 | `ChainOracle`; zebrad (JSON-RPC) and lightwalletd (gRPC, feature `lightwalletd`, untested) |
+| `oracle`, `oracle_lightwalletd` | 6 | `ChainOracle`; zebrad (JSON-RPC) and lightwalletd (gRPC, feature `lightwalletd`); each answer carries its trust level |
+| `knotline` | – | Knotline v1 (`docs/KNOTLINE-v1.md`): the lading carried on chain, one sealed proof per transfer |
 | `verify::verify_chain` | 6 | W1–W5 with named failures and the oracle's trust level |
 | `pin`, `attest`, `manifest` | 9 | the §7.3 on-chain pin, the bridge attestation, `ik` + `genesis[]` |
 | `testing` | – | fixtures; not for production |
@@ -27,7 +28,7 @@ depends on this crate may report "verified" before `WAKE-v1.md` §11 has happene
 ```sh
 cargo test                       # everything but the mainnet test; ~2.5 min, keygen included
 cargo test --lib                 # unit tests only, seconds
-cargo check --features lightwalletd
+cargo test --lib --features lightwalletd   # adds the light-server oracle's tests
 cargo clippy --all-targets
 ```
 
@@ -80,6 +81,7 @@ Pinned to the exact versions in the Zecboat wallet's `Cargo.lock`: `orchard =0.1
 ## Specification, trust model, licence
 
 - `docs/WAKE-v1.md`: the specification (draft for external review).
+- `docs/KNOTLINE-v1.md`: how a lading travels on chain (draft, unreviewed, wire format frozen).
 - `docs/TRUST_MODEL.md`: who is trusted for what, and what each result means.
 - `docs/REVIEW_PACKAGE.md`: where a reviewer starts.
 - Build with the toolchain in `rust-toolchain.toml`.
