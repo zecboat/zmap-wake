@@ -154,6 +154,10 @@ unchanged.
 | `WAKE-v1.md`: pool normative (Ironwood only), soundness of a free `nk` written down in §9, basis of `MIN_DEPTH` in §8 | `docs/WAKE-v1.md` | §11 question 1 now has the reference's own argument to check |
 | `TRUST_MODEL.md` rows 1, 4, 6–8, 10, 12, 13, the verdict table, gaps 9–10 | `docs/TRUST_MODEL.md` | Row 1 no longer says Wake adds nothing to consensus |
 
+Free `nk`, pinned in tests: `positive.rs::a_chosen_nk_proves_a_different_nf` shows a chosen
+`nk` proves a different `nf` for the same note, anchor and `ρ` (by design; `WAKE-v1.md` §9); the
+negative case formerly named `forged_nk` is now `nf_inconsistent_with_witnessed_nk`, which is
+all it ever caught.
+
 Still open from that review, for the external one: negative tests for the kept gadgets with a
-malicious synthesizer; `negative.rs::forged_nk` catches only an `nf` inconsistent with its own
-`nk`, and a positive test that a chosen `nk` proves a different `nf` is not yet written.
+malicious synthesizer.

@@ -366,9 +366,10 @@ checked at all. Zecboat 0.7.1 reports it as `ProviderChecked`, "via your provide
   `NoteCommit` and `CommitIvk`, a sound post-NU6.2 Ironwood Action circuit, and nullifier
   uniqueness within the pool (§2). They are the assumptions Ironwood's own soundness rests on,
   but WAKE relies on them for a statement consensus itself never makes, so "WAKE adds nothing
-  on top of consensus" (said until 2026-10-08) was too strong. A test that a chosen `nk` yields a valid proof
-  of a different `nf` belongs beside the negative tests; `negative.rs::forged_nk` catches only an
-  `nf` inconsistent with its own `nk`, not a chosen key.
+  on top of consensus" (said until 2026-10-08) was too strong. The reference pins this:
+  `positive.rs::a_chosen_nk_proves_a_different_nf` proves and verifies a chosen `nk`, and the
+  negative case `nf_inconsistent_with_witnessed_nk` (named `forged_nk` until 2026-10-08) catches
+  only an `nf` inconsistent with the witnessed `nk`, not a chosen key.
 - **`nk` exposure.** `nk` is a witness and never appears in an instance. Implementations MUST
   ensure no gadget copies it to a public cell. Leaking `nk` lets anyone compute the nullifier
   of every note the holder owns.

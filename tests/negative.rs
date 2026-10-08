@@ -192,16 +192,22 @@ fn wrong_path_one_sibling() {
     });
 }
 
-/// 5. forged nk: a random nullifier-deriving key, with the instance `nf` from the real key.
+/// 5. nf inconsistent with the witnessed nk: a random nullifier-deriving key in the
+/// witness, with the instance `nf` derived from the real key.
+///
+/// This does NOT show that a chosen `nk` is caught: `nk` is free in `WAKE_HOP` by design,
+/// and a chosen `nk` with its own `nf` proves (`positive.rs`,
+/// `a_chosen_nk_proves_a_different_nf`; `WAKE-v1.md` §9). Named `forged_nk` until
+/// 2026-10-08 (audit, WAKE F-8), which suggested otherwise.
 #[test]
-fn forged_nk() {
+fn nf_inconsistent_with_witnessed_nk() {
     let f = carrier();
     let (_, instance) = honest(Kind::Hop, &f);
     let mut w = f.witness.clone();
     w.nk = *other_fvk().nk();
     let circuit = Circuit::from_witness(Kind::Hop, &w).unwrap();
     check(Case {
-        name: "forged nk",
+        name: "nf inconsistent with nk",
         circuit,
         instance,
         caught_by: Sabotage::Nullifier,

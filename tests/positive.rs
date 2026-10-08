@@ -4,8 +4,10 @@
 //! Negative tests (every case that MUST fail) are chapter 5, `tests/negative.rs`.
 
 use halo2_proofs::dev::{CircuitCost, MockProver};
+use orchard::keys::{FullViewingKey, SpendingKey};
 use orchard::note::NoteVersion;
 use pasta_curves::vesta;
+use rand::rngs::OsRng;
 use zmap_wake::circuit::{Circuit, INSTANCE_LEN};
 use zmap_wake::prove::instance_for;
 use zmap_wake::testing::{carrier, fixture};
@@ -123,4 +125,25 @@ fn the_two_verifying_keys_differ() {
     assert_ne!(keys::vk_id(Kind::Hop), keys::vk_id(Kind::Genesis));
     println!("vk_id hop     = {}", keys::vk_id_hex(Kind::Hop));
     println!("vk_id genesis = {}", keys::vk_id_hex(Kind::Genesis));
+}
+
+/// `nk` is free in `WAKE_HOP` (no `CommitIvk`), so the same note, under the same anchor and
+/// with the same `ρ`, has a valid proof for a nullifier the prover chose. This is by design:
+/// a later hop needs that nullifier revealed by an Ironwood action, whose own proof binds
+/// `nk` to the note's address (`WAKE-v1.md` §9, "A free `nk`…"). Pinned here so nobody reads
+/// the negative test `nf_inconsistent_with_witnessed_nk` as "a chosen key is caught"
+/// (audit 2026-10-08, WAKE F-8).
+#[test]
+fn a_chosen_nk_proves_a_different_nf() {
+    let f = carrier();
+    let real = prove::prove_hop(&f.witness).expect("hop proof");
+    let mut w = f.witness.clone();
+    w.nk = *FullViewingKey::from(&SpendingKey::random(&mut OsRng)).nk();
+    let chosen = prove::prove_hop(&w).expect("hop proof under a chosen nk");
+    verify::verify_hop(&chosen.proof, &chosen.instance).expect("a chosen nk verifies");
+    // Same anchor and same ρ (the note and its place in the tree are unchanged) ...
+    assert_eq!(chosen.instance[0], real.instance[0]);
+    assert_eq!(chosen.instance[1], real.instance[1]);
+    // ... and a different nullifier.
+    assert_ne!(chosen.instance[2], real.instance[2]);
 }
