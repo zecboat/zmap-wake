@@ -180,24 +180,30 @@ impl LightwalletdOracle {
                     use rand::seq::SliceRandom;
                     let mut c = connect(&url).await?;
                     // With a hint: list the block's transactions and fetch the wanted one among
-                    // the others. Without, or if the block does not hold it: ask directly.
+                    // the others. The cover is only as honest as the server (audit 2026-10-08,
+                    // Knotline D): a server that answers the block list with nothing, or fails
+                    // the wanted fetch early, used to be given a direct request for the wanted
+                    // id. Now a hinted fetch never asks by id alone: the block list is used
+                    // whether or not it names the wanted transaction, and an empty list is
+                    // "could not be checked", never a direct ask.
                     let mut ask: Vec<Vec<u8>> = vec![want.clone()];
                     if let Some(h) = hint {
                         let id = BlockId { height: h as u64, hash: vec![] };
                         let range = BlockRange { start: Some(id.clone()), end: Some(id), pool_types: vec![] };
+                        let mut others: Vec<Vec<u8>> = Vec::new();
                         if let Ok(resp) = c.get_block_range(range).await {
                             let mut stream = resp.into_inner();
                             if let Ok(Some(block)) = stream.message().await {
-                                let mut others: Vec<Vec<u8>> = block.vtx.into_iter().map(|t| t.txid).filter(|t| t.len() == 32).collect();
-                                if others.contains(&want) {
-                                    others.retain(|t| *t != want);
-                                    others.shuffle(&mut rand::rngs::OsRng);
-                                    others.truncate(MAX_COVER - 1);
-                                    ask.extend(others);
-                                    ask.shuffle(&mut rand::rngs::OsRng);
-                                }
+                                others = block.vtx.into_iter().map(|t| t.txid).filter(|t| t.len() == 32 && *t != want).collect();
                             }
                         }
+                        if others.is_empty() {
+                            return Err(anyhow!("the server offered no cover for block {h}; not asking for the transaction by itself"));
+                        }
+                        others.shuffle(&mut rand::rngs::OsRng);
+                        others.truncate(MAX_COVER - 1);
+                        ask.extend(others);
+                        ask.shuffle(&mut rand::rngs::OsRng);
                     }
                     if std::env::var_os("ZECBOAT_WAKE_TRACE").is_some() {
                         match hint {
@@ -206,7 +212,10 @@ impl LightwalletdOracle {
                             None => eprintln!("[wake] asking the server for one transaction directly (its block is not known)"),
                         }
                     }
+                    // Every request in the set is made, whatever each one answers: stopping at
+                    // the first failure told an active server which one was wanted.
                     let mut found = None;
+                    let mut failure = None;
                     for hash in ask {
                         let mine = hash == want;
                         match c.get_transaction(TxFilter { block: None, index: 0, hash }).await {
@@ -217,9 +226,12 @@ impl LightwalletdOracle {
                             }
                             Ok(_) => {}
                             Err(status) if mine && status.code() == tonic::Code::NotFound => {}
-                            Err(e) if mine => return Err(anyhow!("GetTransaction: {e}")),
+                            Err(e) if mine => failure = Some(anyhow!("GetTransaction: {e}")),
                             Err(_) => {}
                         }
+                    }
+                    if let Some(e) = failure {
+                        return Err(e);
                     }
                     Ok(found.map(|(h, data)| (if h == 0 { hint.unwrap_or(0) } else { h }, data)))
                 })?

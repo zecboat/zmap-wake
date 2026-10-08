@@ -43,6 +43,7 @@ pub const LADING_VERSION: u32 = 1;
 
 /// One wake proof as carried in a lading (`WAKE-v1.md` §7.2 plus `anchor_height`).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProofEntry {
     /// Always `"wake-v1"` for this crate.
     pub kind: String,
@@ -58,6 +59,7 @@ pub struct ProofEntry {
 
 /// The genesis output the chain descends from (`WAKE-v1.md` §7.3).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Genesis {
     /// Transaction id in display (byte-reversed) order, as explorers and receipts show it.
     pub txid: String,
@@ -67,6 +69,7 @@ pub struct Genesis {
 
 /// The bill of lading.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Lading {
     pub wake_lading: u32,
     pub genesis: Genesis,
@@ -160,12 +163,20 @@ impl Lading {
         }
     }
 
-    /// Parse delivered bytes. Version is checked here; everything else in `verify_chain`.
+    /// Parse delivered bytes. Version and canonical form (`WAKE-v1.md` §7.3) are checked
+    /// here; everything else in `verify_chain`. Canonical form means: these bytes are exactly
+    /// what `to_bytes` writes for their content (member order, indentation, lower-case hex,
+    /// no unknown members). Until 2026-10-08 nothing checked it, so upper-case hex or an
+    /// extra member passed, and a lading rebuilt from knots then hashed differently and
+    /// showed as Broken (audit, WAKE F-7, Knotline F).
     pub fn parse(bytes: &[u8]) -> Result<Lading, LadingError> {
         let l: Lading =
             serde_json::from_slice(bytes).map_err(|e| LadingError::NotJson(e.to_string()))?;
         if l.wake_lading != LADING_VERSION {
             return Err(LadingError::UnsupportedVersion(l.wake_lading));
+        }
+        if l.to_bytes() != bytes {
+            return Err(LadingError::NotJson("not in canonical form (WAKE-v1 section 7.3)".into()));
         }
         Ok(l)
     }
@@ -239,7 +250,9 @@ mod tests {
         let mut b = a.clone();
         b.push(b'\n'); // one byte of whitespace changes the hash
         assert_ne!(lading_hash(&a), lading_hash(&b));
-        assert_eq!(Lading::parse(&a).unwrap(), Lading::parse(&b).unwrap());
+        assert!(Lading::parse(&a).is_ok());
+        // 2026-10-08: and such bytes are not a lading at all; only the canonical form is read.
+        assert!(matches!(Lading::parse(&b), Err(LadingError::NotJson(_))));
         let mut v = l.clone();
         v.wake_lading = 2;
         assert_eq!(

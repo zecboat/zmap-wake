@@ -1,8 +1,15 @@
 # Knotline v1 — a lading kept on the chain as a line of sealed knots
 
 **Status: DRAFT. Not published. No external security review has been performed.**
-The wire format in §3 is **frozen** (2026-10-06): three mainnet transactions
-of that day carry it, and a test in the reference implementation pins it.
+The wire format in §3 is **frozen** (2026-10-06): three mainnet transactions of that day carry
+it, and a test in the reference implementation pins it.
+
+> **2026-10-08:** revised after an internal automated review (not an external one): §4 gains
+> the rule that a sender chains only to a line it rebuilt itself; §5 bounds the walk at 512
+> knots and separates "unknown transaction" from "wrong key"; §6 is restated as a
+> cryptographic claim with the shape caveat; §7 says what the block cover holds against; §10
+> corrects the comparison with a file lading and names the sender's OVK as a second key route
+> (discarding it is MAY, not SHOULD: decided the same day). No change to the wire format.
 
 | | |
 |---|---|
@@ -119,10 +126,13 @@ When a carrier is transferred with a lading of `n` proofs (the `n`-th made for t
 WAKE §8 "prove before broadcast"):
 
 1. If the transaction in which the sender received the carrier contains a key memo addressed to
-   the sender, the line already holds proofs `1 … n−1`. The knot is: has-previous, with that
-   key and that transaction's id, and hop `n` only.
-   A sender MUST only do this if the lading it is about to commit to is in canonical
-   serialisation (WAKE §7.3), since the recipient will rebuild it and compare hashes.
+   the sender, **and the sender's own lading for this carrier was rebuilt from the line under
+   that key** (its stored copy records that provenance), the line already holds proofs
+   `1 … n−1`. The knot is: has-previous, with that key and that transaction's id, and hop `n`
+   only. A key memo alone MUST NOT be chained to: an earlier holder can add one with a random
+   key and hand the real lading over another way, and every later sender would then tie knots
+   nobody can open. A sender MUST only chain if the lading it is about to commit to is in
+   canonical serialisation (WAKE §7.3), since the recipient will rebuild it and compare hashes.
 2. Otherwise the item **starts its line**: the knot is has-genesis, with the lading's genesis
    outpoint and all `n` hops. (A wallet MAY decline to start a line with a long history and
    fall back to §8; the reference wallet declines above six proofs.)
@@ -146,7 +156,12 @@ When a carrier arrives whose memo commits to a lading the wallet does not hold:
    actions with it, and reassemble the knot (§3.4).
 3. If the knot is has-previous, repeat step 2 with the previous key on the previous
    transaction, until a has-genesis knot is reached. A reader MUST stop with an error on a
-   repeated transaction and MUST bound the number of knots it follows (reference: 4,096).
+   repeated transaction and MUST bound the number of knots it follows (reference: 512; each
+   knot is a round trip to the chain source). A reader SHOULD NOT start a walk for a carrier
+   whose memo fails the offline ZMAP checks, SHOULD NOT retry a failed line at once, and MUST
+   NOT hold the display of holdings or a send on a walk. "The source does not know the
+   transaction" and "the key opens no knot in it" are different outcomes and MUST be reported
+   as such; neither is "broken".
 4. Build the lading: the genesis outpoint of the first knot, then every hop in order from the
    first knot to the newest, and write it in WAKE's **canonical serialisation** (WAKE §7.3):
    the reader and the sender must arrive at the same bytes from the same content.
@@ -167,8 +182,13 @@ about the lading: the result is "could not be checked", never "broken".
 | The sender, and any earlier holder | the knots up to their own transfer; none after it |
 | Anyone else | no knot; they see a transfer with twelve more outputs than usual |
 
-An earlier holder also cannot tell which later transactions belong to the line: they know the
-commitment of the note they created, not its nullifier.
+An earlier holder also cannot *decrypt or cryptographically recognise* later knots: they know
+the commitment of the note they created, not its nullifier. That is the whole of the claim. A
+knot transfer has a fixed public shape (14 actions, about 47 KB, a 70,000-zat fee), and while
+such transfers are few, an earlier holder watching the chain can guess that the next one is
+the resale; with a colluding provider the guess is near-certain (§7). §6 is a cryptographic
+guarantee, not a statistical one. A uniform shape for every carrier transfer would close the
+gap at a cost; it is not in this version.
 
 ## 7. What a chain server can observe
 
@@ -180,8 +200,11 @@ To narrow this, a reader that knows the block of a wanted transaction SHOULD fet
 shielded transactions together and keep the one it needs. The block is known: a hop's anchor
 height is the block its note was mined in, which is the block of the previous knot's
 transaction. This hides which transaction was wanted, not the block, and blocks often hold few
-shielded transactions. It is a mitigation. An anonymising transport is the remedy and is
-outside this version.
+shielded transactions. It holds against an honest server only: a server that answers the
+block list with nothing, or fails requests selectively, can learn the wanted id; so a hinted
+reader MUST make every request of the cover set whatever each answers, and MUST NOT fall back
+to asking for the wanted transaction by itself. It is a mitigation. An anonymising transport
+is the remedy and is outside this version.
 
 ## 8. When the Knotline is not used
 
@@ -214,15 +237,23 @@ Transactions of the reference run, with a throwaway test item: start
   requires forging a WAKE proof.
 - **Confidentiality rests on Zcash note encryption** to the knot address and on the secrecy of
   the knot key. Compromise of a holder's viewing key reveals the knot key in their key memo and
-  with it the line up to that point, as it would reveal a lading delivered any other way.
+  with it the line up to that point. A lading delivered as a sealed file is never on the
+  chain; a line is, permanently, so the two are not equivalent under a future break of note
+  encryption. Knot and key-memo outputs are also decryptable with the **sender's** outgoing
+  viewing key unless the sender discards it for those outputs; a sender MAY. The reference
+  sender does not (decided 2026-10-08): a wallet restored from its seed rebuilds its sent
+  History from those outputs, and what the OVK exposes is a key the sender already held.
+  Whoever's viewing key is published (an issuance account, for one) SHOULD NOT send units
+  from that account.
 - **A leaked knot key** reveals the line up to that knot and nothing after it.
 - **Permanence.** A knot cannot be withdrawn. Whatever a future break of the encryption reveals
   about old knots stays revealed.
 - **Shape.** A transfer carrying a knot is larger than a plain one and can be recognised as
   such. Because every knot has the same shape, the shape does not reveal the length of the
   history; a line started with earlier history is the exception, once.
-- **The derivation in §3.1** makes the knot address a function of the key alone. No spending
-  key for it is ever used; the outputs carry no value.
+- **The derivation in §3.1** makes the knot address a function of the key alone. Every holder
+  of the key can derive its spending key; the outputs carry no value, and an implementation
+  MUST NOT spend or sweep knot notes (their nullifiers would link the line forward).
 - **Data from the chain is untrusted input.** Readers MUST bound lengths and counts (§3.4, §5.3).
 
 ## 11. Limits

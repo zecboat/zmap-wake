@@ -134,3 +134,26 @@ Questions on Knotline, in order:
 Evidence: `cargo test --lib knotline` (round trips, refusals, and `v1_format_is_frozen`, which
 pins the address derivation, both knot layouts and the canonical lading by hash). Three mainnet
 transactions made with a throwaway test item are listed in `KNOTLINE-v1.md` §9.
+
+## Changed after an internal automated review (2026-10-08)
+
+An internal automated review (not an external one) of the code above found no forgery. What it
+found changed the following; the circuits, keys, prover, witness and `vk_id`s are still
+unchanged.
+
+| What | Where | Why a reviewer may care |
+|---|---|---|
+| W3–W5 before W1–W2 | `src/verify.rs` | A forged lading fails as forged, and the oracle is never asked about heights a forger chose |
+| `is_local_url` parses the URL; the curl path is gone | `src/oracle.rs` | `https://127.0.0.1@attacker/` and `127.evil.example` used to pass as loopback |
+| "Not on chain" only from RPC error −5 of a zebrad on this machine | `src/oracle.rs` | Any other zebrad error used to become a forgery verdict |
+| The zebrad path recomputes the txid | `src/oracle.rs` | As the light-server path already did |
+| Hex decoding never slices text | `src/oracle.rs` | Non-ASCII input panicked |
+| Block cover completed whatever each request answers | `src/oracle_lightwalletd.rs` | An active server could defeat it; `KNOTLINE-v1.md` §7 now says it holds against an honest server only |
+| Canonical lading enforced on input | `src/lading.rs` (`deny_unknown_fields`, `parse` compares with `to_bytes`) | `WAKE-v1.md` §7.3 was normative but unchecked |
+| Knot reader refuses non-zero trailing bytes; walk bound 512 | `src/knotline.rs` | One encoding per knot; a bounded walk |
+| `WAKE-v1.md`: pool normative (Ironwood only), soundness of a free `nk` written down in §9, basis of `MIN_DEPTH` in §8 | `docs/WAKE-v1.md` | §11 question 1 now has the reference's own argument to check |
+| `TRUST_MODEL.md` rows 1, 4, 6–8, 10, 12, 13, the verdict table, gaps 9–10 | `docs/TRUST_MODEL.md` | Row 1 no longer says Wake adds nothing to consensus |
+
+Still open from that review, for the external one: negative tests for the kept gadgets with a
+malicious synthesizer; `negative.rs::forged_nk` catches only an `nf` inconsistent with its own
+`nk`, and a positive test that a chosen `nk` proves a different `nf` is not yet written.

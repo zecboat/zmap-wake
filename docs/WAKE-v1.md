@@ -10,6 +10,11 @@
 >
 > **2026-10-06:** §8.1 amended: a result obtained through a server may be reported under its
 > own named state, never as Verified. No change to the circuits, the lading or W1–W5.
+>
+> **2026-10-08:** revised after an internal automated review (not an external one): the pool
+> is normative, Ironwood only (§2, F-5); §9 writes down why a free `nk` does not give a second
+> successor (F-8); §8 states the basis of `MIN_DEPTH` (F-11) and the order of W1–W5 (F-1).
+> No change to the circuits or the wire format.
 
 **Status: DRAFT. Not published. No external security review has been performed.**
 A missing constraint in this circuit is a forgery. The wallet therefore shows every Wake
@@ -20,7 +25,7 @@ verdict in amber ("checked by the holder's wallet, not yet externally reviewed",
 |---|---|
 | Version | 1 (draft) |
 | Date | 2026-09-24; revised 2026-10-02 to match the code; amended 2026-10-06 (§7.3, §8.1) |
-| Network | Zcash mainnet, NU6.3 "Ironwood" and later; Orchard and Ironwood pools |
+| Network | Zcash mainnet, NU6.3 "Ironwood" and later; **Ironwood pool only** (§2) |
 | Proof system | Halo 2, inner-product argument over the Pallas/Vesta cycle, no trusted setup |
 | Reference implementation | `zmap-wake` (built; `circuit.rs`, `prove.rs`, `verify.rs`, `oracle.rs`, `oracle_lightwalletd.rs`, `seal.rs`, `lading.rs`, `keys.rs`, `witness.rs`, `knotline.rs`) |
 | Used by | ZMAP v0.5 §9 check 7 and §15: the ZMAP consignment **is** the §7.3 lading, each proof `kind: "wake-v1"` |
@@ -64,15 +69,27 @@ Two boundaries where the link does **not** cross: between bundles of the same tr
 fabricated zero-value self-output), and across any future pool. WAKE v1 does not bridge these;
 see §10.
 
+**The pool is normative: WAKE v1 is defined for the Ironwood pool only, from NU6.3.** Every
+anchor (W2) is a root of the Ironwood note-commitment tree and every genesis output (W1) is an
+Ironwood action; `kind: "wake-v1"` means exactly this, and a proof over any other pool needs a
+new `kind`. The facts above do not hold, as a verifier needs them, for the Orchard pool:
+
+- Orchard proofs made before NU6.2 came from a circuit now known to be unsound (the `orchard`
+  changelog's `InsecureV1`: `[ivk] g_d` did not bind `pk_d` to `nk`), so a historical Orchard
+  note may have had more than one nullifier revealed, and with it more than one successor.
+- Nullifier sets are kept per pool. A zero-value note's nullifier can be revealed again as a
+  dummy in a second pool; "revealed at most once" is a statement about one pool. (ZMAP
+  carriers hold 10,000 zat, so they are not zero-value; the rule is general all the same.)
+
 ## 3. Terminology
 
 | Term | Meaning |
 |---|---|
-| note | an Orchard-protocol note `(g_d, pk_d, v, ρ, ψ, rcm)` in the Orchard or Ironwood pool |
+| note | an Orchard-protocol note `(g_d, pk_d, v, ρ, ψ, rcm)` in the Ironwood pool (§2) |
 | `cm`, `cmx` | its commitment and extracted commitment (`Extract_P(cm)`) |
 | `nf` | its nullifier, `DeriveNullifier_nk(ρ, ψ, cm)` |
 | `nk` | the nullifier-deriving key, a component of the full viewing key |
-| anchor | a root of the pool's note-commitment tree at some block height |
+| anchor | a root of the Ironwood note-commitment tree at some block height |
 | genesis | the output the overlay designates as the origin: `(txid, action_index)` → `cmx_0` |
 | hop `j` | the note `N_j` whose `ρ` equals `nf_{j-1}`; `N_0` is the genesis note |
 | wake proof | a proof for one hop |
@@ -254,11 +271,26 @@ Given a lading, the note in hand (specifically its `ρ`), and an oracle the veri
 | W5 | the note in hand has `ρ == hops[last].instance[2]` | `RhoMismatch` |
 
 - `MIN_DEPTH` is 100 (`oracle.rs`). A proof against a shallower anchor is not wrong; it is
-  not yet safe. It is a **block** count, deliberately: the rule guards against reorgs, which
-  are measured in blocks. Under NU7's 25-second blocks (ZIP 218, from about 5 November 2026)
-  100 blocks is 42 minutes instead of 125; still far beyond any mainnet reorg. Depth is `tip − anchor_height` (§7.2 erratum). The reference prover anchors
-  each hop at the block in which that carrier was mined, so a freshly received unit shows
-  *too shallow* for about 100 blocks and then verifies, with no re-proving.
+  not yet safe. Depth is `tip − anchor_height` (§7.2 erratum); a prover cannot inflate it by
+  claiming a later height, because W2 asks the oracle for the root *at* that height. The
+  reference prover anchors each hop at the block in which that carrier was mined, so a freshly
+  received unit shows *too shallow* for about 100 blocks and then verifies, with no re-proving.
+- **The basis of `MIN_DEPTH`, stated plainly: it is a policy value, not a finality rule.** It
+  is the protocol's coinbase maturity (`MIN_TRANSPARENT_COINBASE_MATURITY` = 100), the depth
+  at which Zcash itself lets outputs of a block be built on. It is not Zebra's reorg limit:
+  zebrad keeps the last 1,000 blocks reorganisable (`MAX_BLOCK_REORG_HEIGHT`, `zebra-chain`
+  13.0.0), so a reorg deeper than 100 blocks would still be followed, and W2 would then fail
+  for a hop whose anchor it removed. It is a **block** count because reorgs are measured in
+  blocks; at the 75-second spacing of `zebra-chain` 13.0.0 it is about 125 minutes, and a
+  change of spacing changes the time, not the rule (an earlier revision cited 25-second NU7
+  blocks; that is not in the code this was checked against, and nothing here relies on it).
+  A verifier MAY require more; the reference does not offer less.
+- **Under a server (§8.1) the depth is the server's word**, as the tip and the roots are: a
+  result obtained that way is reported as such, never as Verified.
+- **Order.** A verifier runs the checks that need no oracle first (decoding, W4, W5, W3) and
+  W1 and W2 after them, so a forged lading fails as forged (`BadProof`, `ChainBreak`,
+  `RhoMismatch`) and the oracle is never asked about heights or outputs a forger chose; "too
+  shallow" is reported only when everything else passed.
 - Nullifier-set membership is **not** checked. Membership of `N_{j+1}` with `ρ = nf_j` implies
   `nf_j` was revealed, by consensus. Omitting the lookup removes one thing an oracle can lie about.
 - A verifier MUST report *which* check failed. `GenesisNotOnChain` and `BadProof` are evidence
@@ -314,6 +346,29 @@ checked at all. Zecboat 0.7.1 reports it as `ProviderChecked`, "via your provide
   Nothing in a lading identifies an address, a value, or a key. Publishing a lading in the
   clear would let anyone link those transactions; hence §7.3's rule. Knotline v1 keeps to it by
   sealing each hop; what a chain server can still observe is set out in `KNOTLINE-v1.md` §7.
+- **A free `nk` gives a note many valid proofs, and still one successor.** `WAKE_HOP` does not
+  constrain `nk` by `CommitIvk` (§4.3), so for one note, one anchor and one `ρ`, a prover can
+  produce valid proofs for many different `nf`. That is by design, and harmless, by the
+  following reduction (the reference's argument, not yet externally reviewed; §11 question 1):
+  a *later* hop needs an Ironwood action that revealed that `nf` and created the next note. That
+  action's spend proof binds its `nk` to its `pk_d` through `CommitIvk` and `[ivk] g_d` (sound
+  since NU6.2), and spending needs the spend authority of that note's holder. So a second
+  successor needs an Ironwood note `N'` whose real nullifier equals the claimed `nf`:
+  - if `cm(N') ≠ cm(N)`, equality of `Extract_P([PRF_nk(ρ) + ψ] K + cm)` needs a known
+    discrete-log relation between `cm − cm'` and `K` in Pallas;
+  - if `cm(N') = cm(N)`, Sinsemilla binding of `NoteCommit` forces the same `ρ` and `ψ`, and the
+    two nullifiers then differ only through `nk`: a Poseidon collision, or a discrete-log
+    relation for the sign case of `Extract_P`;
+  - `PRF_nk(ρ) + ψ` is computed modulo `p` and used below `q`, so it does not wrap
+    (`witness.rs`).
+  The assumptions are therefore discrete log in Pallas (with `K`, `R` and the Sinsemilla
+  generators independent), collision resistance of Poseidon in `nk`, Sinsemilla binding for
+  `NoteCommit` and `CommitIvk`, a sound post-NU6.2 Ironwood Action circuit, and nullifier
+  uniqueness within the pool (§2). They are the assumptions Ironwood's own soundness rests on,
+  but WAKE relies on them for a statement consensus itself never makes, so "WAKE adds nothing
+  on top of consensus" (said until 2026-10-08) was too strong. A test that a chosen `nk` yields a valid proof
+  of a different `nf` belongs beside the negative tests; `negative.rs::forged_nk` catches only an
+  `nf` inconsistent with its own `nk`, not a chosen key.
 - **`nk` exposure.** `nk` is a witness and never appears in an instance. Implementations MUST
   ensure no gadget copies it to a public cell. Leaking `nk` lets anyone compute the nullifier
   of every note the holder owns.
@@ -367,7 +422,8 @@ Critical and left these questions for the external reviewer, in order:
    equivalently find two `DeriveNullifier` inputs that collide in `Extract_P([·]K + cm)`?
    State the exact assumption (Pallas discrete log + Poseidon as a PRF + Sinsemilla binding)
    and whether the Orchard security argument already implies it. Every other check assumes
-   "only the holder who spends `N_j` can produce the next `ρ`".
+   "only the holder who spends `N_j` can produce the next `ρ`". The reference's own argument
+   (2026-10-08) is in §9 ("A free `nk`…"); the question is whether it is complete.
 2. **Cell identity of `ρ`.** `rho_old` is copy-constrained, not re-witnessed, inside
    `note_commit` and inside `derive_nullifier`, so `constrain_instance(rho_old, LINK)` cannot
    be met with a `ρ` that differs from the one in the commitment. Is

@@ -16,7 +16,6 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::process::Command;
 
 use anyhow::{anyhow, bail, Context, Result};
 use incrementalmerkletree::frontier::NonEmptyFrontier;
@@ -104,18 +103,13 @@ impl ZebradOracle {
     /// Raw JSON-RPC call. Returns the `result` value or the node's error.
     pub fn rpc(&self, method: &str, params: Value) -> Result<Value> {
         let body = json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params }).to_string();
-        let stdout = if self.url.starts_with("http://") {
-            http_post_json(&self.url, &body)?
-        } else {
-            let out = Command::new("curl")
-                .args(["-s", "--max-time", "60", "-u", "x:x", "-H", "content-type: application/json", "--data", &body, &self.url])
-                .output()
-                .context("run curl")?;
-            if !out.status.success() {
-                bail!("no node answered at {} (curl: {})", self.url, out.status);
-            }
-            out.stdout
-        };
+        // http:// only, over the crate's own TCP client. The former curl path honoured
+        // proxies and ~/.curlrc and would connect to a userinfo host (audit 2026-10-08,
+        // WAKE F-2); a node reached over TLS is somebody else's node in any case.
+        if !self.url.starts_with("http://") {
+            bail!("{}: a node is reached over plain http:// on this machine only", self.url);
+        }
+        let stdout = http_post_json(&self.url, &body)?;
         let v: Value = serde_json::from_slice(&stdout)
             .with_context(|| format!("parse RPC response to {method}"))?;
         if let Some(err) = v.get("error").filter(|e| !e.is_null()) {
@@ -180,35 +174,53 @@ impl ZebradOracle {
         Ok(ts)
     }
 
+    /// `getrawtransaction` with the one answer that means "not on chain" told apart from every
+    /// other failure. `None` only when a node THIS wallet runs says the transaction does not
+    /// exist (zebrad error code -5); a node that is warming up, rate-limiting, answering in an
+    /// unexpected shape, or that is not ours, is an error, never "not on chain". Before this
+    /// (audit 2026-10-08, WAKE F-3) any node error became `GenesisNotOnChain`, a forgery verdict.
+    fn get_mined_transaction(&self, txid_hex: &str) -> Result<Option<Value>> {
+        match self.rpc("getrawtransaction", json!([txid_hex, 1])) {
+            Ok(v) => Ok(Some(v)),
+            Err(e) => {
+                let msg = e.to_string();
+                let no_such_tx = msg.contains("node error") && msg.contains("\"code\":-5");
+                if no_such_tx && self.trust() == OracleTrust::FullNode {
+                    Ok(None)
+                } else {
+                    Err(e)
+                }
+            }
+        }
+    }
+
     /// The raw bytes of a mined transaction and its height; `None` if not known as mined.
     /// `txid_hex` in display order.
     pub fn raw_transaction(&self, txid_hex: &str) -> Result<Option<(u32, Vec<u8>)>> {
-        let v = match self.rpc("getrawtransaction", json!([txid_hex, 1])) {
-            Ok(v) => v,
-            Err(e) if e.to_string().contains("node error") => return Ok(None),
-            Err(e) => return Err(e),
-        };
+        let Some(v) = self.get_mined_transaction(txid_hex)? else { return Ok(None) };
         let Some(height) = v.get("height").and_then(Value::as_u64) else {
             return Ok(None);
         };
         let hex = v.get("hex").and_then(Value::as_str).ok_or_else(|| anyhow!("getrawtransaction: no hex"))?;
-        if hex.len() % 2 != 0 {
-            bail!("getrawtransaction: odd-length hex");
+        let raw = decode_hex(hex).context("getrawtransaction: hex")?;
+        // The answer is checked against the id asked for, as the light-server path does
+        // (audit 2026-10-08, Knotline G): a node reached over a network is somebody's server.
+        let branch = zcash_protocol::consensus::BranchId::for_height(
+            &zcash_protocol::consensus::MainNetwork,
+            zcash_protocol::consensus::BlockHeight::from_u32(height as u32),
+        );
+        let tx = zcash_primitives::transaction::Transaction::read(&raw[..], branch).context("parse transaction")?;
+        let asked = decode_hex_32(txid_hex)?;
+        if tx.txid().as_ref() != &reversed(asked) {
+            bail!("the node answered with a different transaction than the one asked for");
         }
-        let raw = (0..hex.len() / 2)
-            .map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).context("hex"))
-            .collect::<Result<Vec<u8>>>()?;
         Ok(Some((height as u32, raw)))
     }
 
     /// The Ironwood Actions of a mined transaction, and the height it was mined at.
     /// `None` if the node does not know the transaction as mined.
     pub fn ironwood_actions(&self, txid_hex: &str) -> Result<Option<(u32, Vec<IronwoodAction>)>> {
-        let v = match self.rpc("getrawtransaction", json!([txid_hex, 1])) {
-            Ok(v) => v,
-            Err(e) if e.to_string().contains("node error") => return Ok(None),
-            Err(e) => return Err(e),
-        };
+        let Some(v) = self.get_mined_transaction(txid_hex)? else { return Ok(None) };
         let Some(height) = v.get("height").and_then(Value::as_u64) else {
             return Ok(None);
         };
@@ -216,7 +228,7 @@ impl ZebradOracle {
             .pointer("/ironwood/actions")
             .and_then(Value::as_array)
             .cloned()
-            .unwrap_or_default();
+            .ok_or_else(|| anyhow!("getrawtransaction: no /ironwood/actions in the node's answer"))?;
         let mut out = Vec::with_capacity(acts.len());
         for a in &acts {
             let nf = a
@@ -256,7 +268,13 @@ fn http_post_json(url: &str, body: &str) -> Result<Vec<u8>> {
     };
     let mut last = None;
     let mut stream = None;
+    // A URL that claims to be local is connected to loopback only: `localhost` is whatever the
+    // resolver says, and the trust decision was made on the name (audit 2026-10-08, WAKE F-2).
+    let local = is_local_url(url);
     for addr in with_port.to_socket_addrs().with_context(|| format!("{url}: cannot resolve the address"))? {
+        if local && !addr.ip().is_loopback() {
+            continue;
+        }
         match TcpStream::connect_timeout(&addr, Duration::from_secs(5)) {
             Ok(s) => {
                 stream = Some(s);
@@ -313,19 +331,40 @@ fn http_post_json(url: &str, body: &str) -> Result<Vec<u8>> {
     }
 }
 
-/// Whether `url` points at this machine: loopback (127.0.0.0/8, `::1`) or `localhost`.
+/// Whether `url` points at this machine: an IP literal in 127.0.0.0/8, `::1`, the v4-mapped
+/// form of either, or the literal `localhost`; `http://` only; no userinfo.
 ///
 /// WAKE-v1 §8.1: anchors count as self-validated only when the oracle is a node the verifier
 /// runs. A zebrad reached over the network is someone else's word, however it is configured.
+/// The first version was a string test (`starts_with("127.")`) and passed
+/// `https://127.0.0.1@attacker.example/` and `127.evil.example` (audit 2026-10-08, WAKE F-2,
+/// Zecboat D). What this still cannot see: a tunnel or proxy on loopback, or another process
+/// squatting the port while no zebrad runs; those are stated limits, not detected ones.
 pub fn is_local_url(url: &str) -> bool {
-    let rest = url.split("://").nth(1).unwrap_or(url);
-    let hostport = rest.split('/').next().unwrap_or("");
+    local_host_of(url).is_some()
+}
+
+/// The host part of a local node URL, or `None` if the URL is not one (see [`is_local_url`]).
+fn local_host_of(url: &str) -> Option<String> {
+    let rest = url.strip_prefix("http://")?;
+    let hostport = rest.split(['/', '?', '#']).next().unwrap_or("");
+    if hostport.contains('@') || hostport.is_empty() {
+        return None;
+    }
     let host = if let Some(h) = hostport.strip_prefix('[') {
         h.split(']').next().unwrap_or("")
     } else {
         hostport.rsplit_once(':').map(|(h, _)| h).unwrap_or(hostport)
     };
-    host.eq_ignore_ascii_case("localhost") || host == "::1" || host.starts_with("127.")
+    if host.eq_ignore_ascii_case("localhost") {
+        return Some("localhost".into());
+    }
+    let ip: std::net::IpAddr = host.parse().ok()?;
+    let loopback = match ip {
+        std::net::IpAddr::V4(v4) => v4.is_loopback(),
+        std::net::IpAddr::V6(v6) => v6.is_loopback() || v6.to_ipv4_mapped().map(|v4| v4.is_loopback()).unwrap_or(false),
+    };
+    loopback.then(|| host.to_string())
 }
 
 impl ChainOracle for ZebradOracle {
@@ -367,17 +406,30 @@ impl ChainOracle for ZebradOracle {
 #[cfg(feature = "lightwalletd")]
 pub use crate::oracle_lightwalletd::LightwalletdOracle;
 
-/// Decode exactly 32 bytes of hex.
+/// Decode exactly 32 bytes of hex: 64 ASCII characters `[0-9a-fA-F]`, nothing else. Slicing a
+/// `str` by byte index panicked on non-ASCII input (audit 2026-10-08, WAKE F-6); this decodes
+/// bytes and never slices text.
 pub fn decode_hex_32(s: &str) -> Result<[u8; 32]> {
-    let s = s.trim();
-    if s.len() != 64 {
-        bail!("expected 64 hex chars, got {}", s.len());
+    let v = decode_hex(s.trim())?;
+    let n = v.len();
+    v.try_into().map_err(|_| anyhow!("expected 64 hex chars, got {}", 2 * n))
+}
+
+/// Decode a hex string of any even length; ASCII `[0-9a-fA-F]` only.
+pub fn decode_hex(s: &str) -> Result<Vec<u8>> {
+    let b = s.as_bytes();
+    if !s.is_ascii() || b.len() % 2 != 0 {
+        bail!("not an even-length ASCII hex string");
     }
-    let mut out = [0u8; 32];
-    for (i, b) in out.iter_mut().enumerate() {
-        *b = u8::from_str_radix(&s[2 * i..2 * i + 2], 16).context("hex")?;
-    }
-    Ok(out)
+    let nib = |c: u8| -> Result<u8> {
+        match c {
+            b'0'..=b'9' => Ok(c - b'0'),
+            b'a'..=b'f' => Ok(c - b'a' + 10),
+            b'A'..=b'F' => Ok(c - b'A' + 10),
+            _ => bail!("not a hex digit: {:?}", c as char),
+        }
+    };
+    b.chunks(2).map(|p| Ok(nib(p[0])? << 4 | nib(p[1])?)).collect()
 }
 
 /// Lower-case hex.
@@ -397,12 +449,29 @@ mod trust_tests {
 
     #[test]
     fn only_a_node_on_this_machine_is_a_full_node() {
-        for u in ["http://127.0.0.1:8232", "http://localhost:8232", "http://[::1]:8232", "https://127.5.6.7/"] {
+        for u in ["http://127.0.0.1:8232", "http://localhost:8232", "http://[::1]:8232", "http://127.5.6.7/", "http://[::ffff:127.0.0.1]:8232"] {
             assert!(is_local_url(u), "{u}");
         }
-        for u in ["http://192.168.1.10:8232", "https://zec.rocks:443", "http://zebrad.lan:8232", "http://1270.0.0.1:8232"] {
+        // The bypasses of the first string test (audit 2026-10-08): userinfo, a DNS name that
+        // starts with "127.", a name under localhost, https (nothing local is reached over TLS).
+        for u in [
+            "http://192.168.1.10:8232", "https://zec.rocks:443", "http://zebrad.lan:8232", "http://1270.0.0.1:8232",
+            "https://127.0.0.1@attacker.example/", "http://127.0.0.1@attacker.example:8232", "http://127.evil.example:8232",
+            "http://127.0.0.1.attacker.example:8232", "http://localhost.attacker.example:8232", "https://127.5.6.7/", "http://@127.0.0.1:8232",
+        ] {
             assert!(!is_local_url(u), "{u}");
         }
+    }
+
+    #[test]
+    fn hex_decoding_refuses_non_ascii_and_odd_input_without_panicking() {
+        assert!(decode_hex_32("€").is_err());
+        assert!(decode_hex_32(&"€".repeat(32)).is_err());
+        assert!(decode_hex_32(&"+f".repeat(32)).is_err());
+        assert!(decode_hex_32(&"0".repeat(63)).is_err());
+        assert_eq!(decode_hex_32(&"aB".repeat(32)).unwrap(), [0xab; 32]);
+        assert!(decode_hex("abc").is_err());
+        assert_eq!(decode_hex("").unwrap(), Vec::<u8>::new());
     }
 }
 

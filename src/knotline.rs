@@ -46,7 +46,7 @@ const HEAD: usize = 1 + 4 + 2 + 2;
 const CHUNK: usize = 512 - HEAD;
 const KIND_V1: &str = "wake-v1";
 /// The longest walk back a reader will make.
-pub const MAX_KNOTS: usize = 4096;
+pub const MAX_KNOTS: usize = 512; // 4096 until 2026-10-08: each knot is a server round trip (audit, Knotline B)
 
 fn hexs(x: &[u8]) -> String {
     x.iter().map(|v| format!("{v:02x}")).collect()
@@ -148,6 +148,12 @@ pub fn unpack_knot(b: &[u8]) -> Result<Knot> {
         let len = u16::from_le_bytes(take(2)?.try_into()?) as usize;
         let proof = base64::engine::general_purpose::STANDARD.encode(take(len)?);
         hops.push(ProofEntry { kind: KIND_V1.to_string(), circuit, instance, anchor_height, proof });
+    }
+    // One encoding per knot (audit 2026-10-08, Knotline H): what follows the last hop may be
+    // the zero padding of the final chunk and nothing else. A non-zero byte there is an error,
+    // not ignored.
+    if b[i..].iter().any(|&x| x != 0) {
+        return Err(anyhow!("knot has non-zero bytes after its last hop"));
     }
     Ok(Knot { prev, genesis, hops })
 }
@@ -266,6 +272,23 @@ pub fn walk_back(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn trailing_bytes_after_a_knot_are_refused() {
+        let k = super::Knot {
+            prev: None,
+            genesis: Some(("ab".repeat(32), 3)),
+            hops: vec![super::ProofEntry { kind: super::KIND_V1.into(), circuit: "genesis".into(), instance: ["00".repeat(32), "11".repeat(32), "22".repeat(32)], anchor_height: 7, proof: String::new() }],
+        };
+        let packed = super::pack_knot(&k).unwrap();
+        assert!(super::unpack_knot(&packed).is_ok());
+        let mut padded = packed.clone();
+        padded.extend_from_slice(&[0u8; 17]);
+        assert!(super::unpack_knot(&padded).is_ok(), "chunk padding is zeros");
+        let mut longer = packed.clone();
+        longer.extend_from_slice(&[0, 0, 1]);
+        assert!(super::unpack_knot(&longer).is_err(), "a non-zero byte after the last hop");
+    }
+
     use super::*;
     use orchard::builder::{Builder, BundleType};
     use orchard::bundle::BundleVersion;

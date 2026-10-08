@@ -215,7 +215,29 @@ pub fn verify_chain(
         proofs.push(p);
     }
 
-    // W1: the genesis cmx is really at the designated output.
+    // W3, W4, W5 first: they need no oracle. A forged lading must fail here, as BadProof /
+    // ChainBreak / RhoMismatch, before any anchor is looked at; otherwise a forgery whose
+    // anchors are shallow or invented would read "could not be verified right now" (audit
+    // 2026-10-08, WAKE F-1), and the oracle would be queried at heights the forger chose.
+    // W3: every proof verifies under the key for its circuit.
+    for (j, p) in proofs.iter().enumerate() {
+        verify(p.kind, &p.proof, &p.instance).map_err(|_| WakeFailure::BadProof(j))?;
+    }
+
+    // W4: the chain rule.
+    for j in 1..proofs.len() {
+        if proofs[j].instance[LINK] != proofs[j - 1].instance[crate::circuit::NF] {
+            return Err(WakeFailure::ChainBreak(j));
+        }
+    }
+
+    // W5: the note in hand descends from the last hop.
+    let final_nf = proofs.last().unwrap().instance[crate::circuit::NF].to_repr();
+    if note_rho.to_bytes() != final_nf {
+        return Err(WakeFailure::RhoMismatch);
+    }
+
+    // W1: the genesis cmx is really at the designated output. (After W3-W5: see above.)
     let genesis_txid = decode_hex_32(&lading.genesis.txid)
         .map_err(|e| WakeFailure::Malformed(format!("genesis.txid: {e}")))?;
     let on_chain = oracle
@@ -243,24 +265,6 @@ pub fn verify_chain(
             }
             AnchorStatus::Known { depth } => min_anchor_depth = min_anchor_depth.min(depth),
         }
-    }
-
-    // W3: every proof verifies under the key for its circuit.
-    for (j, p) in proofs.iter().enumerate() {
-        verify(p.kind, &p.proof, &p.instance).map_err(|_| WakeFailure::BadProof(j))?;
-    }
-
-    // W4: the chain rule.
-    for j in 1..proofs.len() {
-        if proofs[j].instance[LINK] != proofs[j - 1].instance[crate::circuit::NF] {
-            return Err(WakeFailure::ChainBreak(j));
-        }
-    }
-
-    // W5: the note in hand descends from the last hop.
-    let final_nf = proofs.last().unwrap().instance[crate::circuit::NF].to_repr();
-    if note_rho.to_bytes() != final_nf {
-        return Err(WakeFailure::RhoMismatch);
     }
 
     Ok(Verified {

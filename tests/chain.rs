@@ -131,7 +131,8 @@ fn three_hop_chain_verifies_and_each_failure_has_one_cause() {
     let mut padded = c.bytes.clone();
     padded.push(b'\n');
     assert_eq!(run(&c, &padded, Some(good_hash)), Err(WakeFailure::LadingHashMismatch));
-    run(&c, &padded, None).expect("the same bytes still verify when no hash is expected");
+    // Without a hash the padded bytes are refused too: only the canonical encoding is a lading.
+    assert!(matches!(run(&c, &padded, None), Err(WakeFailure::Malformed(_))));
 
     // 2. GenesisNotOnChain: the oracle has a different cmx at the genesis output.
     let other = fixture(NoteVersion::V3, 10_000, None);
