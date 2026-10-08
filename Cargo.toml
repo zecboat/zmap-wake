@@ -34,7 +34,7 @@ zcash_note_encryption = "0.4"
 chacha20poly1305 = "=0.10.1"
 base64         = "0.22"
 serde          = { version = "1", features = ["derive"] }
-serde_json     = "1"
+serde_json     = "=1.0.150"  # exact: the canonical lading is its output (WAKE-v1 §7.3, audit F-10)
 anyhow         = "1"
 tokio          = { version = "1", features = ["rt-multi-thread"], optional = true }
 tonic          = { version = "0.14", features = ["transport", "tls-ring", "tls-webpki-roots"], optional = true }
