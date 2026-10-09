@@ -223,7 +223,12 @@ reader's network address; a reader with its own node reveals nothing. The remedi
 transfer shape (planned for 0.7.2: every transfer padded to the knot shape) and an anonymising
 transport. A hinted reader MUST make every request of the cover set whatever each answers, MUST
 treat a hint above the tip, or a block that does not list the wanted transaction, as a wrong
-hint and stop, and MUST compare the height the server reports with the hint. When the hinted block holds nothing but the wanted transaction
+hint and stop, and MUST compare the height the server reports with the hint. That rule is for
+knot fetches, where the hint is a Knotline fact (a hop's anchor is its note's block, §6); a
+reader MUST NOT hint the genesis (W1) fetch from a lading's own `anchor_height` (`WAKE-v1.md`
+§8), and on a wrong hint it MAY ask once more without one. A reader's byte budget for a walk
+counts every transaction the server sent, the cover included (2026-10-09, gate second pass,
+Issues B and F). When the hinted block holds nothing but the wanted transaction
 (a genesis often does), the reader SHOULD list the two blocks on either side and take its
 cover from them; only when those hold nothing either MAY it ask for the transaction by itself.
 An honest server learns nothing new from that ask, since its own block list named one

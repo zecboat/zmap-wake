@@ -278,3 +278,39 @@ issuance keys. Its questions for a human auditor: whether storing a lading shoul
 genesis to match a trusted manifest when one exists (`verify_local` accepts any genesis), and
 whether an unproven send should ever be possible for a carrier whose memo commits to a hash.
 
+
+## The gate's second pass (2026-10-09, over hardening 12 to 16)
+
+An eighth session re-read hardening 12 to 16 and catch-up 7 to 11, and confirmed by enumerating
+every outbound client that no request to the website is made while a unit is verified, copies
+are ranked, or the wallet decides which lines to walk. The circuit, keys, prover and witness
+were unchanged in the range; `verify_local` and `verify_chain` were found sound as far as read.
+The gate was not passed: three Medium. The send planner ranked a held lading as "checks out"
+when its genesis *label* equalled the manifest's, which anyone can write over real proofs of
+their own note, so a stranger's relabelled copy tied the genuine unit (every send refused) or
+was spent in its place beside a genuine copy that had no lading (demonstrated offline with the
+test vector relabelled). The wallet hinted the W1 genesis fetch from the lading's own anchor
+height, and since catch-up 10 a wrong hint fails the fetch, so through a provider a lading with
+a false genesis read "could not be checked" rather than Broken, and a lading anchored later
+than its genesis block, which §8 allows, could never be checked (demonstrated against a public
+server). And hardening 16's claim that the planner's genesis was at hand offline did not hold:
+it still went through the issuance badge's chain check, so with the chain source down a
+first-holder unit was offered "unproven" with the wrong reason. Hardening 17 answers them:
+rank 5 requires the lading's first proof to open from the commitment the signed manifest
+states at the genesis output (W1 done offline; the relabelled vector is now a test); the
+planner's genesis, with that commitment and the stated block, is read from the manifest the
+wallet holds with no network; the W1 fetch is hinted from the manifest's stated block, never
+from the lading, and a fetch that still reports a wrong hint is asked once more without one
+(`WAKE-v1.md` §8 and `KNOTLINE-v1.md` §7 now say so). The lower findings: every failure of
+the source (connection, tip, tree state, transaction, a node's answer) is now marked transient
+in both oracles and waits a flat minute instead of a doubling day; copies whose walks failed
+before are walked last and an on-demand collection lifts the delay but keeps the count; the
+walk's byte budget counts the cover the server sent; the issuer refusal compares the decoded
+Orchard viewing key, not the string; read-only adoption fails closed; an Orchard-pool carrier is
+never refused as "uncollected"; the documentation that said more than the code was corrected.
+The estimate now applies the send's own refusal, so the screen never names a copy the send
+then declines. Its questions for a human auditor: whether binding the genesis label to the
+manifest's commitment is equivalent to W1 for the purpose of choosing a copy (a reorg between
+minting and checking); whether §8 should instead require `hops[0].anchor_height` to be the
+genesis block; which of the orchard and halo2 issues of the 2026 audit touch the gadgets WAKE
+keeps; and whether §9's reduction for a free `nk` states sufficient assumptions.

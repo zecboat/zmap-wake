@@ -171,19 +171,15 @@ pub struct Verified {
     pub trust: crate::oracle::OracleTrust,
 }
 
-/// Verify a lading against the note in hand and the verifier's oracle
-/// (`WAKE-v1.md` §8, W1–W5, in that order, after the hash and format checks).
+/// The checks of a lading that need no oracle (`WAKE-v1.md` §8 without W1 and W2): what
+/// [`verify_chain`] runs first, offered on its own for a reader that has the bytes and the
+/// note in hand but no chain to ask yet.
 ///
 /// - `lading_bytes`: the bytes exactly as delivered.
 /// - `expected_hash`: the memo's `consignment_hash`, if the overlay carries one.
 /// - `note_rho`: the `ρ` of the note in hand.
-/// - `min_depth`: normally [`MIN_DEPTH`].
 ///
-/// Nullifier-set membership is not checked: membership of `N_{j+1}` with
-/// `ρ = nf_j` implies `nf_j` was revealed, by consensus.
-///
-/// The verifier reports *which* check failed and never succeeds on a subset.
-/// The checks that need no oracle, in order: the hash (when one is expected), the canonical
+/// The checks, in order: the hash (when one is expected), the canonical
 /// parse, every entry's decoding, W3 (every proof verifies), W4 (the chain rule) and W5 (the
 /// note in hand descends from the last hop). Everything a forger controls fails here, as
 /// `LadingHashMismatch`, `Malformed`, `BadProof`, `ChainBreak` or `RhoMismatch`; what passes is

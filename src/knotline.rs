@@ -45,13 +45,14 @@ pub const KEY_TAG: &[u8; 4] = b"WKK1";
 const HEAD: usize = 1 + 4 + 2 + 2;
 const CHUNK: usize = 512 - HEAD;
 const KIND_V1: &str = "wake-v1";
-/// The longest walk back a reader will make.
+/// The longest walk back a reader will make (4096 until 2026-10-08: each knot is a server
+/// round trip; audit, Knotline B).
 pub const MAX_KNOTS: usize = 512;
 /// A first knot (has-genesis) carries the history an item joins the line with; the reference
 /// sender starts a line with at most six hops, and no honest line needs more than this.
 pub const MAX_FIRST_HOPS: usize = 64;
 /// The most packed-knot bytes one walk will hold (review 2026-10-09, Knotline D).
-pub const MAX_WALK_BYTES: usize = 8 * 1024 * 1024; // 4096 until 2026-10-08: each knot is a server round trip (audit, Knotline B)
+pub const MAX_WALK_BYTES: usize = 8 * 1024 * 1024;
 
 fn hexs(x: &[u8]) -> String {
     x.iter().map(|v| format!("{v:02x}")).collect()

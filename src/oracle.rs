@@ -47,6 +47,30 @@ pub enum OracleTrust {
     ServerAsserted,
 }
 
+/// A failure of the source itself: no connection, a timeout, a server or node that did not
+/// answer or answered with something unreadable. Told apart from a failure the question's
+/// content caused (a wrong hint, a bound, a malformed knot): a reader that schedules retries
+/// treats a source failure as a short wait, never as evidence against the line (review
+/// 2026-10-09, gate second pass, Issue D). Carried as a message prefix, because
+/// `WakeFailure::Oracle` and the wallet's walk flatten errors to text.
+pub const TRANSIENT: &str = "transient:";
+
+/// Whether an error message marks a failure of the source (see [`TRANSIENT`]).
+pub fn is_transient(message: &str) -> bool {
+    message.contains(TRANSIENT)
+}
+
+/// The hint a caller gave for a fetch did not match what the server reported: the hinted
+/// block is above the tip, does not list the transaction, or the server places the transaction
+/// in another block. The hint is wrong, not the server; a caller may ask again without one
+/// (review 2026-10-09, gate second pass, Issue B). A message marker, for the same reason.
+pub const WRONG_HINT: &str = "the hint is wrong";
+
+/// Whether an error message says the caller's hint was wrong (see [`WRONG_HINT`]).
+pub fn is_wrong_hint(message: &str) -> bool {
+    message.contains(WRONG_HINT)
+}
+
 /// The two questions a verifier asks the chain.
 pub trait ChainOracle {
     /// Whether this oracle's answers are self-validated. Defaults to the weaker claim.
@@ -109,15 +133,17 @@ impl ZebradOracle {
         if !self.url.starts_with("http://") {
             bail!("{}: a node is reached over plain http:// on this machine only", self.url);
         }
-        let stdout = http_post_json(&self.url, &body)?;
+        // What the node does, or fails to do, is the source's failure, never the line's
+        // (review 2026-10-09, gate second pass, Issue D).
+        let stdout = http_post_json(&self.url, &body).map_err(|e| anyhow!("{TRANSIENT} {e:#}"))?;
         let v: Value = serde_json::from_slice(&stdout)
-            .with_context(|| format!("parse RPC response to {method}"))?;
+            .with_context(|| format!("{TRANSIENT} parse RPC response to {method}"))?;
         if let Some(err) = v.get("error").filter(|e| !e.is_null()) {
-            bail!("{method}: node error {err}");
+            bail!("{TRANSIENT} {method}: node error {err}");
         }
         v.get("result")
             .cloned()
-            .ok_or_else(|| anyhow!("{method}: no result"))
+            .ok_or_else(|| anyhow!("{TRANSIENT} {method}: no result"))
     }
 
     /// The node's current block height.
@@ -602,6 +628,8 @@ mod http_tests {
         // Bind, read the port, drop the listener: nothing answers there now.
         let port = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
         let e = ZebradOracle::new(format!("http://127.0.0.1:{port}")).tip_height().unwrap_err().to_string();
-        assert!(e.starts_with("no node answered at http://127.0.0.1:"), "{e}");
+        // Marked as the source's failure (gate second pass, Issue D), then said plainly.
+        assert!(e.starts_with("transient: no node answered at http://127.0.0.1:"), "{e}");
+        assert!(is_transient(&e));
     }
 }

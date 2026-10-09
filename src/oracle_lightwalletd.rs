@@ -29,7 +29,7 @@ use zcash_client_backend::proto::service::{
 use zcash_primitives::transaction::Transaction;
 use zcash_protocol::consensus::{BlockHeight, BranchId, Network};
 
-use crate::oracle::{reversed, AnchorStatus, ChainOracle, IronwoodAction, IronwoodTreeState, OracleTrust};
+use crate::oracle::{reversed, AnchorStatus, ChainOracle, IronwoodAction, IronwoodTreeState, OracleTrust, TRANSIENT, WRONG_HINT};
 
 /// A lightwalletd-protocol endpoint, e.g. `https://zec.rocks:443` or `http://127.0.0.1:8137`.
 pub struct LightwalletdOracle {
@@ -43,6 +43,9 @@ pub struct LightwalletdOracle {
     /// transaction is fetched together with the others of its block, so the server learns the
     /// block and not which transaction was wanted (see [`LightwalletdOracle::hint_height`]).
     hints: RefCell<HashMap<[u8; 32], u32>>,
+    /// Transaction bytes received from the server so far, cover included: what a walk's byte
+    /// budget is charged (review 2026-10-09, gate second pass, Issue F).
+    bytes: std::cell::Cell<usize>,
     /// Transactions already fetched and checked, so each is asked for once.
     fetched: RefCell<HashMap<[u8; 32], (u32, Vec<u8>)>>,
 }
@@ -76,7 +79,7 @@ where
         rt.block_on(make())
     })
     .join()
-    .map_err(|_| anyhow!("the server call panicked"))?
+    .map_err(|_| anyhow!("{TRANSIENT} the server call panicked"))?
 }
 
 async fn connect(url: &str) -> Result<CompactTxStreamerClient<Channel>> {
@@ -86,7 +89,7 @@ async fn connect(url: &str) -> Result<CompactTxStreamerClient<Channel>> {
         .timeout(Duration::from_secs(30))
         .connect()
         .await
-        .with_context(|| format!("no answer from the server at {url}"))?;
+        .with_context(|| format!("{TRANSIENT} no answer from the server at {url}"))?;
     Ok(CompactTxStreamerClient::new(channel))
 }
 
@@ -99,6 +102,7 @@ impl LightwalletdOracle {
             tree_cache: RefCell::new(HashMap::new()),
             hints: RefCell::new(HashMap::new()),
             fetched: RefCell::new(HashMap::new()),
+            bytes: std::cell::Cell::new(0),
         })
     }
 
@@ -117,10 +121,19 @@ impl LightwalletdOracle {
     /// actively lying one could force this by answering five block lists with nothing, which
     /// is the trade accepted on 2026-10-09, KNOTLINE-v1 §7).
     ///
-    /// A hint is a privacy device, never a fact: nothing the oracle returns is derived from
-    /// it, and a wrong hint costs nothing but the cover.
+    /// Nothing the oracle returns is derived from a hint. Since 2026-10-09 (review, Knotline
+    /// C) a hint is also checked: a hinted block above the tip or not listing the transaction,
+    /// or a reported height that differs from it, fails the fetch with a message
+    /// [`crate::oracle::is_wrong_hint`] recognises, so that a line whose author lied about a
+    /// knot's block is not walked on. A caller whose hint was only a guess, not a Knotline
+    /// fact (the W1 genesis fetch), must then ask again without one (gate second pass, Issue B).
     pub fn hint_height(&self, txid: &[u8; 32], height: u32) {
         self.hints.borrow_mut().insert(*txid, height);
+    }
+
+    /// Transaction bytes received from the server by this oracle so far, the cover included.
+    pub fn bytes_fetched(&self) -> usize {
+        self.bytes.get()
     }
 
     /// The address this oracle asks.
@@ -136,8 +149,8 @@ impl LightwalletdOracle {
         let url = self.url.clone();
         let height = on_thread(move || async move {
             let mut c = connect(&url).await?;
-            let id = c.get_latest_block(ChainSpec {}).await.context("GetLatestBlock")?.into_inner();
-            u32::try_from(id.height).map_err(|_| anyhow!("GetLatestBlock: {} is not a block height", id.height))
+            let id = c.get_latest_block(ChainSpec {}).await.context(format!("{TRANSIENT} GetLatestBlock"))?.into_inner();
+            u32::try_from(id.height).map_err(|_| anyhow!("{TRANSIENT} GetLatestBlock: {} is not a block height", id.height))
         })?;
         *self.tip.borrow_mut() = Some(height);
         Ok(height)
@@ -154,19 +167,19 @@ impl LightwalletdOracle {
             let ts = c
                 .get_tree_state(BlockId { height: height as u64, hash: vec![] })
                 .await
-                .context("GetTreeState")?
+                .context(format!("{TRANSIENT} GetTreeState"))?
                 .into_inner();
             // The answer must be for the height asked: a server answering another height's
             // tree would otherwise only fail the root comparison, or pass it by chance.
             if ts.height != height as u64 {
-                return Err(anyhow!("GetTreeState answered for height {} instead of {height}", ts.height));
+                return Err(anyhow!("{TRANSIENT} GetTreeState answered for height {} instead of {height}", ts.height));
             }
-            let tree = ts.ironwood_tree().context("parse ironwood tree from TreeState")?;
+            let tree = ts.ironwood_tree().context(format!("{TRANSIENT} parse ironwood tree from TreeState"))?;
             let root: Anchor = tree.root().into();
             let frontier = tree
                 .to_frontier()
                 .take()
-                .ok_or_else(|| anyhow!("empty ironwood tree at {height}"))?;
+                .ok_or_else(|| anyhow!("{TRANSIENT} empty ironwood tree at {height}"))?;
             Ok(IronwoodTreeState { height, root, frontier })
         })?;
         self.tree_cache.borrow_mut().insert(height, ts.clone());
@@ -191,7 +204,7 @@ impl LightwalletdOracle {
                 let hint = self.hints.borrow().get(txid).copied();
                 let url = self.url.clone();
                 let want = reversed(*txid).to_vec();
-                on_thread(move || async move {
+                let answer = on_thread(move || async move {
                     use rand::seq::SliceRandom;
                     let mut c = connect(&url).await?;
                     // With a hint: list the block's transactions and fetch the wanted one among
@@ -205,9 +218,9 @@ impl LightwalletdOracle {
                     // (review 2026-10-09, Knotline C).
                     let mut ask: Vec<Vec<u8>> = vec![want.clone()];
                     if let Some(h) = hint {
-                        let tip = c.get_latest_block(ChainSpec {}).await.context("GetLatestBlock")?.into_inner().height;
+                        let tip = c.get_latest_block(ChainSpec {}).await.context(format!("{TRANSIENT} GetLatestBlock"))?.into_inner().height;
                         if u64::from(h) > tip {
-                            return Err(anyhow!("the hinted block {h} is above the server's tip {tip}; the hint is wrong"));
+                            return Err(anyhow!("the hinted block {h} is above the server's tip {tip}; {WRONG_HINT}"));
                         }
                         let mut listed = false;
                         let id = BlockId { height: h as u64, hash: vec![] };
@@ -217,7 +230,7 @@ impl LightwalletdOracle {
                         // source's failure, reported as transient (review 2026-10-09,
                         // regression over 12-15, Issue F). A block that answers without the
                         // transaction is the line author's.
-                        let resp = c.get_block_range(range).await.map_err(|e| anyhow!("transient: could not list block {h}: {e}"))?;
+                        let resp = c.get_block_range(range).await.map_err(|e| anyhow!("{TRANSIENT} could not list block {h}: {e}"))?;
                         let mut stream = resp.into_inner();
                         match stream.message().await {
                             Ok(Some(block)) => {
@@ -225,11 +238,11 @@ impl LightwalletdOracle {
                                 listed = all.iter().any(|t| *t == want);
                                 others = all.into_iter().filter(|t| *t != want).collect();
                             }
-                            Ok(None) => return Err(anyhow!("transient: the server listed nothing for block {h}")),
-                            Err(e) => return Err(anyhow!("transient: could not list block {h}: {e}")),
+                            Ok(None) => return Err(anyhow!("{TRANSIENT} the server listed nothing for block {h}")),
+                            Err(e) => return Err(anyhow!("{TRANSIENT} could not list block {h}: {e}")),
                         }
                         if !listed {
-                            return Err(anyhow!("block {h} does not list the transaction the hint named it for; the hint is wrong"));
+                            return Err(anyhow!("block {h} does not list the transaction the hint named it for; {WRONG_HINT}"));
                         }
                         if others.is_empty() {
                             // A genesis is often alone in its block (both published vectors
@@ -263,32 +276,42 @@ impl LightwalletdOracle {
                     // the first failure told an active server which one was wanted.
                     let mut found = None;
                     let mut failure = None;
+                    // Every byte the server sends is counted, the cover's too: a walk's budget
+                    // is charged for what was really downloaded (gate second pass, Issue F).
+                    let mut received = 0usize;
                     for hash in ask {
                         let mine = hash == want;
                         match c.get_transaction(TxFilter { block: None, index: 0, hash }).await {
                             Ok(r) if mine => {
                                 let raw = r.into_inner();
+                                received += raw.data.len();
                                 let height = if raw.height == 0 || raw.height > u32::MAX as u64 { 0 } else { raw.height as u32 };
                                 if let Some(h) = hint {
                                     if height != 0 && height != h {
-                                        failure = Some(anyhow!("the server reports height {height} for a transaction the hint placed at {h}; the hint is wrong"));
+                                        failure = Some(anyhow!("the server reports height {height} for a transaction the hint placed at {h}; {WRONG_HINT}"));
                                     }
                                 }
                                 found = Some((height, raw.data));
                             }
-                            Ok(_) => {}
+                            Ok(r) => received += r.into_inner().data.len(),
                             Err(status) if mine && status.code() == tonic::Code::NotFound => {}
-                            Err(e) if mine => failure = Some(anyhow!("GetTransaction: {e}")),
+                            Err(e) if mine => failure = Some(anyhow!("{TRANSIENT} GetTransaction: {e}")),
                             Err(_) => {}
                         }
                     }
-                    if let Some(e) = failure {
-                        return Err(e);
-                    }
                     // The server's height, or 0 when it reports none. Never the hint: a hint
                     // is the caller's guess (for a lading, the sender's), not a fact.
-                    Ok(found)
-                })?
+                    Ok((found, received, failure))
+                });
+                let (found, received, failure) = match answer {
+                    Ok(x) => x,
+                    Err(e) => return Err(e),
+                };
+                self.bytes.set(self.bytes.get().saturating_add(received));
+                if let Some(e) = failure {
+                    return Err(e);
+                }
+                found
             }
         };
         let Some((height, data)) = got else { return Ok(None) };

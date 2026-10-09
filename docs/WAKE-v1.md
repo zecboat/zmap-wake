@@ -279,6 +279,13 @@ Given a lading, the note in hand (specifically its `ρ`), and an oracle the veri
   it gets is then a lower bound on the true depth, which is the safe direction. The reference
   prover anchors each hop at the block in which that carrier was mined, so a freshly received
   unit shows *too shallow* for about 100 blocks and then verifies, with no re-proving.
+- `anchor_height` is the prover's number and binds only through W2. A reader MUST NOT use
+  `hops[0].anchor_height` as the block of the genesis transaction when it fetches that
+  transaction for W1 (a light reader's "hint", `KNOTLINE-v1.md` §7): a prover may have anchored
+  later than the genesis block, and a forged genesis label would then fail as a wrong hint
+  rather than as `GenesisNotOnChain`. The genesis block, when a reader wants one for cover,
+  comes from the signed issuance manifest, or the fetch is made without a hint (2026-10-09,
+  gate second pass, Issue B).
 - **The basis of `MIN_DEPTH`, stated plainly: it is a policy value, not a finality rule.** It
   is the protocol's coinbase maturity (`MIN_TRANSPARENT_COINBASE_MATURITY` = 100), the depth
   at which Zcash itself lets outputs of a block be built on. It is not Zebra's reorg limit:
