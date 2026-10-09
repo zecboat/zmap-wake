@@ -372,3 +372,31 @@ questions for a human auditor: which of the 2026 orchard and halo2 findings touc
 WAKE keeps, in the pinned halo2_gadgets 0.5.0 and orchard 0.15.3; whether row 14's "invented
 anchors read Verified" is conservative or constructible; and whether an anchor no block ever
 had should be Broken rather than "could not be checked" when the wallet's own node answers.
+
+## The gate's fifth pass (2026-10-09, over hardening 12 to 19): the gate holds
+
+An eleventh session re-read hardening 12 to 19 and catch-up 7 to 14, ran the wallet core's
+tests and a live redirect probe, and found no Critical, High or Medium issue in the verifier
+or the lading path at the wallet's `13551f4` and this repository's `c89b285`; hardening 19
+opened nothing above Low. Five Low and four Informational items remained, and hardening 20
+answers them, with one decision by the owner: **the drop-box route is removed from the
+wallet**. It was the 0.7.0 draft's optional off-chain hand-over, an address the holder could
+name; nothing ever used it by default and zecboat.com never ran one; every pass found
+something to patch in it (redirects on the download, then on the upload, body bounds,
+delivery on a failed store), and it put a party in the middle that saw both sides' network
+addresses. A lading now travels in the transfer or as a sealed file. The other answers: a
+memo naming a key this wallet knows, for an asset that key's manifest does not list, gets the
+red "not issued by" answer again, named after that collection, and "unknown" is kept for a
+key the wallet has never seen; the broadcast client follows no redirects; the send is not
+refused because some copy's walk is in progress, only when the copy it would spend is being
+collected; an asset no manifest names a genesis for is "unverified" without any chain
+request; the "unknown" state is grey rather than amber; the stale example comment is
+corrected; the walk sort runs its database reads once per carrier. Left for 0.7.2 and stated
+in TRUST_MODEL row 12: the walk order is a cost, not a guarantee, since a stranger can label
+their own line's failures "transient" through a provider's "not known", and the tie-break is
+insertion order; and the double verification of proofs in the badge. The pass's questions for
+a human auditor: whether a memo naming a pinned key for an unlisted asset should be the
+strongest negative issuance verdict, and whether "closed" makes a manifest exhaustive; whether
+a light server's "not known" may be classed as the source's failure when the stranger chose
+the transaction asked for, or a second source should be asked; and the orchard and halo2
+findings of 2026 against the kept gadgets.

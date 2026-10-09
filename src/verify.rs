@@ -185,8 +185,8 @@ pub struct Verified {
 /// `LadingHashMismatch`, `Malformed`, `BadProof`, `ChainBreak` or `RhoMismatch`; what passes is
 /// a lading whose proofs are real and end at this note, which only its history can produce.
 ///
-/// A wallet MUST run this before storing a lading from any route (Knotline, memos, file,
-/// drop-box): a lading that fails is evidence about its sender, never "the lading for" a
+/// A wallet MUST run this before storing a lading from any route (Knotline, memos, file):
+/// a lading that fails is evidence about its sender, never "the lading for" a
 /// carrier (review 2026-10-09, regression Finding 1). Returns the parsed lading and its proofs.
 /// Passing here does not say the genesis is the issuer's: that is the caller's manifest check.
 pub fn verify_local(

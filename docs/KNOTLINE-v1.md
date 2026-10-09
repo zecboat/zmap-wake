@@ -26,8 +26,8 @@ The key words MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
 
 WAKE gives a note a lading: the list of proofs that it descends from a named genesis output.
 ZMAP v0.5 §15 requires the lading to reach the next holder, and until now it travelled outside
-the chain: through a drop-box, whose operator sees the network address of both parties, or as a
-file, which is a manual step. Carrying the whole lading inside the transfer removes the third
+the chain: as a sealed file, which is a manual step (the 0.7.0 draft's drop-box, whose operator
+saw the network address of both parties, was removed before any release). Carrying the whole lading inside the transfer removes the third
 party but resends every proof on every transfer.
 
 The Knotline carries the lading **on the chain, one proof per transfer**:
@@ -169,7 +169,7 @@ When a carrier arrives whose memo commits to a lading the wallet does not hold:
    spend another's; a pass that runs out of time records nothing against carriers it did not
    reach; a walk nobody asked for MUST NOT hold the display of holdings or a send; a failed line
    SHOULD back off with a growing delay that survives a restart, applied to the walk only (the
-   transfer's own memos and a named drop-box are still read); a source that did not answer is
+   transfer's own memos are still read); a source that did not answer is
    not a failed line and gets a short, flat delay. The send collects only the carrier being
    sent, and a carrier whose memo commits to a lading the wallet has not collected is NOT sent
    as unproven by default: the lading exists; abandoning it is a separate choice under its own
@@ -242,8 +242,7 @@ anonymising transport is the remedy and is outside this version.
 
 A wallet whose user has turned the Knotline off, a recipient whose wallet does not implement
 it, or a history too long to start a line with: the transfer carries no knot, the lading stays
-with the sender, and it is handed over as ZMAP §15 describes (a sealed file by any channel, or
-a drop-box the user has named). A unit that later moves with the Knotline on starts a line then.
+with the sender, and it is handed over as ZMAP §15 describes (a sealed file by any channel). A unit that later moves with the Knotline on starts a line then.
 
 ## 9. Measured cost (2026-10-06, mainnet)
 
