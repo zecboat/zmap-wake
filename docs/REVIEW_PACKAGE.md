@@ -220,3 +220,19 @@ description an asset id is derived from; whether the §5.4 lineage lock can be a
 a large note; the spendable-note semantics of the pinned `zcash_client_sqlite` for a stored
 unmined transaction.
 
+## The second regression pass (2026-10-09, over hardening 12 and 13)
+
+A fifth session re-read the two fix commits above and the catch-ups that mirror them. It
+confirmed nineteen of the twenty-eight findings closed and found that three of the fixes had
+opened new paths: the send planner ranked copies without the manifest's genesis (so a copy with
+a self-consistent lading outranked a genuine unit at its first holder), the walk-in-progress
+guard let a send read "being collected" as "absent" and offer an unproven send, and the chain
+source decided at start could fix the provider for a whole session after one silent probe. The
+next commit closes them (the planner ranks with the genesis and asks no oracle; the send waits
+for a walk or refuses; a provider default re-asks the node and moves to it once it answers, never
+back) and the smaller items it listed. Its questions for a human auditor, added to the list
+above: whether any ranking of copies is acceptable without the issuer's genesis, whether a wallet
+should ever offer an unproven send of a carrier whose memo commits to a lading hash, whether a
+provider default is acceptable at all, and whether any confusable-name heuristic suffices for
+an open registry.
+
