@@ -344,3 +344,31 @@ opening the manifest's commitment, the chain rule, and a final nullifier equal t
 note's ρ, implying descent without W2) is complete given free `nk` and `ψ`; which of the 2026
 orchard and halo2 findings touch the gadgets WAKE keeps; and whether a light-server verdict
 may substitute the tip's consensus branch when the server reports no height.
+
+## The gate's fourth pass (2026-10-09, over hardening 12 to 18): passed
+
+A tenth session re-read hardening 12 to 18 and catch-up 7 to 13 and found no Critical, High or
+Medium issue in the WAKE verifier as the wallet uses it, nor in the path by which a lading is
+stored, chosen and sent, at the wallet's `9f6cb3b` and this repository's `f2e4d97`. Every claim
+of hardening 18 held: the pre-v1 collections are gone with no path left that reads them; the
+planner's genesis comes from a held signed manifest and from nowhere else; all thirty pinned
+genesis outputs match mainnet in txid, index, commitment and block (the reviewer's own probe
+against the owner's node); a copy whose genesis is not the manifest's is Broken inside the
+verifier with no chain request; every failed walk attempt counts for the ordering; and no path
+that verifies, ranks or walks reaches the website. The circuit was out of that session's scope.
+What stayed open was Low or Informational, and hardening 19 answers it: the claim about
+chain requests is stated exactly (the verifier makes none for a mismatching copy; the Knotline
+walk that collected it did, within its budget); a provider's own failures weigh a tenth of a
+line's in the walk order, so an outage cannot push a genuine unit behind every copy sent since;
+a unit of a collection the wallet does not know gets a grey "not known" state, and the red
+"not issued by" is kept for a verified manifest that does not list the unit; the optional
+drop-box client follows no redirects and reads its body in bounded pieces; a failed local
+store after signing no longer skips the drop-box delivery; the offline verdict is a pure
+function with the copy cases as tests; stale comments and the unused ed25519 dependency are
+gone. Left for 0.7.2: a registry collection's genesis outpoint taken from the audit's
+chain-derived unit list rather than its manifest; the Knotline question of whether each knot
+should carry the genesis so a stranger's line can be refused after one fetch. The pass's
+questions for a human auditor: which of the 2026 orchard and halo2 findings touch the gadgets
+WAKE keeps, in the pinned halo2_gadgets 0.5.0 and orchard 0.15.3; whether row 14's "invented
+anchors read Verified" is conservative or constructible; and whether an anchor no block ever
+had should be Broken rather than "could not be checked" when the wallet's own node answers.
