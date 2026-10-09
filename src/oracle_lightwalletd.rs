@@ -322,9 +322,10 @@ impl LightwalletdOracle {
         // matters for older ones; without a reported height the tip's branch is used.
         let at = if height > 0 { height } else { self.tip_height()? };
         let branch = BranchId::for_height(&self.network, BlockHeight::from_u32(at));
-        let tx = Transaction::read(&data[..], branch).context("parse transaction")?;
+        // Unreadable or substituted bytes are the server's failure (gate third pass, Finding 3).
+        let tx = Transaction::read(&data[..], branch).context(format!("{TRANSIENT} parse transaction"))?;
         if tx.txid().as_ref() != &reversed(*txid) {
-            return Err(anyhow!("the server answered with a different transaction than the one asked for"));
+            return Err(anyhow!("{TRANSIENT} the server answered with a different transaction than the one asked for"));
         }
         self.fetched.borrow_mut().insert(*txid, (height, data.clone()));
         Ok(Some((height, data, tx)))
@@ -381,7 +382,7 @@ impl ChainOracle for LightwalletdOracle {
     /// the genesis proof's anchor.
     fn cmx_at(&self, txid: &[u8; 32], action_index: u32) -> Result<Option<ExtractedNoteCommitment>> {
         let Some((_, actions)) = self.ironwood_actions(txid)? else {
-            return Err(anyhow!("the server at {} does not know transaction {}", self.url, crate::oracle::hex(txid)));
+            return Err(anyhow!("{TRANSIENT} the server at {} does not know transaction {}", self.url, crate::oracle::hex(txid)));
         };
         let Some(a) = actions.get(action_index as usize) else {
             return Ok(None);

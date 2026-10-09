@@ -149,8 +149,10 @@ impl ZebradOracle {
     /// The node's current block height.
     pub fn tip_height(&self) -> Result<u32> {
         let v = self.rpc("getblockcount", json!([]))?;
-        let h = v.as_u64().ok_or_else(|| anyhow!("getblockcount: not a number"))?;
-        u32::try_from(h).map_err(|_| anyhow!("getblockcount: {h} is not a block height"))
+        // An answer in an unexpected shape is the node's failure, like no answer at all (gate
+        // third pass, Finding 3); so below for the tree state and the transaction.
+        let h = v.as_u64().ok_or_else(|| anyhow!("{TRANSIENT} getblockcount: not a number"))?;
+        u32::try_from(h).map_err(|_| anyhow!("{TRANSIENT} getblockcount: {h} is not a block height"))
     }
 
     /// The Ironwood tree state at the end of block `height` (`z_gettreestate`), cached.
@@ -161,15 +163,15 @@ impl ZebradOracle {
         let v = self.rpc("z_gettreestate", json!([height.to_string()]))?;
         let iw = v
             .get("ironwood")
-            .ok_or_else(|| anyhow!("z_gettreestate: no ironwood field at {height}"))?;
+            .ok_or_else(|| anyhow!("{TRANSIENT} z_gettreestate: no ironwood field at {height}"))?;
         let final_state = iw
             .pointer("/commitments/finalState")
             .and_then(Value::as_str)
-            .ok_or_else(|| anyhow!("z_gettreestate: no ironwood finalState"))?;
+            .ok_or_else(|| anyhow!("{TRANSIENT} z_gettreestate: no ironwood finalState"))?;
         let final_root = iw
             .pointer("/commitments/finalRoot")
             .and_then(Value::as_str)
-            .ok_or_else(|| anyhow!("z_gettreestate: no ironwood finalRoot"))?;
+            .ok_or_else(|| anyhow!("{TRANSIENT} z_gettreestate: no ironwood finalRoot"))?;
 
         let state = TreeState {
             ironwood_tree: final_state.to_string(),
@@ -182,7 +184,7 @@ impl ZebradOracle {
         let frontier = tree
             .to_frontier()
             .take()
-            .ok_or_else(|| anyhow!("empty ironwood tree at {height}"))?;
+            .ok_or_else(|| anyhow!("{TRANSIENT} empty ironwood tree at {height}"))?;
 
         // The node's finalRoot must agree with the parsed tree; if it does not, the
         // encoding we assumed is wrong and no path built from this frontier can verify.
@@ -190,7 +192,7 @@ impl ZebradOracle {
         // mainnet; accepting either order loosened a sanity check for nothing (review 2026-10-09).
         let reported = decode_hex_32(final_root)?;
         if root.to_bytes() != reported {
-            bail!("ironwood finalRoot at {height} does not match the parsed tree root");
+            bail!("{TRANSIENT} ironwood finalRoot at {height} does not match the parsed tree root");
         }
         let ts = IronwoodTreeState {
             height,
@@ -237,18 +239,18 @@ impl ZebradOracle {
         let Some(height) = v.get("height").and_then(Value::as_u64) else {
             return Ok(None);
         };
-        let hex = v.get("hex").and_then(Value::as_str).ok_or_else(|| anyhow!("getrawtransaction: no hex"))?;
-        let raw = decode_hex(hex).context("getrawtransaction: hex")?;
+        let hex = v.get("hex").and_then(Value::as_str).ok_or_else(|| anyhow!("{TRANSIENT} getrawtransaction: no hex"))?;
+        let raw = decode_hex(hex).context(format!("{TRANSIENT} getrawtransaction: hex"))?;
         // The answer is checked against the id asked for, as the light-server path does
         // (audit 2026-10-08, Knotline G): a node reached over a network is somebody's server.
         let branch = zcash_protocol::consensus::BranchId::for_height(
             &zcash_protocol::consensus::MainNetwork,
             zcash_protocol::consensus::BlockHeight::from_u32(height as u32),
         );
-        let tx = zcash_primitives::transaction::Transaction::read(&raw[..], branch).context("parse transaction")?;
+        let tx = zcash_primitives::transaction::Transaction::read(&raw[..], branch).context(format!("{TRANSIENT} parse transaction"))?;
         let asked = decode_hex_32(txid_hex)?;
         if tx.txid().as_ref() != &reversed(asked) {
-            bail!("the node answered with a different transaction than the one asked for");
+            bail!("{TRANSIENT} the node answered with a different transaction than the one asked for");
         }
         Ok(Some((height as u32, raw, tx)))
     }

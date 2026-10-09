@@ -314,3 +314,33 @@ manifest's commitment is equivalent to W1 for the purpose of choosing a copy (a 
 minting and checking); whether §8 should instead require `hops[0].anchor_height` to be the
 genesis block; which of the orchard and halo2 issues of the 2026 audit touch the gadgets WAKE
 keeps; and whether §9's reduction for a free `nk` states sufficient assumptions.
+
+## The gate's third pass (2026-10-09, over hardening 12 to 17)
+
+A ninth session re-read hardening 12 to 17 and catch-up 7 to 12. The WAKE verifier: nothing
+Medium or worse. The three pinned collections: every claim of hardening 17 confirmed, with all
+thirty built-in commitments checked against mainnet. The website: confirmed absent from every
+path that verifies, ranks or walks. Two Medium remained, both confined to units whose trusted
+genesis stated no commitment: the twenty units of the two collections minted before identity
+v1, whose built-in manifests gave an outpoint and a block only, and any collection trusted
+through a registry audit. For those, hardening 17's binding could not be made, so a valid
+lading ranked as "cannot be bound" and any second carrier, even a bare copy, froze every send
+beyond the first holder; and their genesis still came through the issuance badge's chain
+check, the case hardening 17 claimed closed. Hardening 18 answers them by the owner's
+decision: nobody holds a pre-v1 unit and 0.7.1 is not built for them, so their manifests and
+the pre-v1 badge path are removed from the build, and a registry collection's genesis, with
+its commitment and block, is read offline from the passed audit's chain copy under the key
+the audit verified. The planner's genesis now has no network fallback at all. The lower
+findings: the remaining answers of a node or server in an unexpected shape are marked as the
+source's failure, "not known" from the wallet's own node counts against the line, and every
+failed attempt counts for the walk ordering so a line that fails "transiently" still goes
+last; a copy whose genesis label or first commitment is not the manifest's is Broken after the
+oracle-free checks, with no chain request, so a stranger's copy never makes the wallet ask the
+chain source for a transaction the stranger chose; the send's own pre-collection pass adopts a
+hash-less lading on its writable connection; the offline listing check verifies the chain
+copy's signature; the trust model's row 12 says what hardening 17 did and did not cover. The
+pass's questions for a human auditor: whether the offline binding argument (a genesis proof
+opening the manifest's commitment, the chain rule, and a final nullifier equal to a real
+note's ρ, implying descent without W2) is complete given free `nk` and `ψ`; which of the 2026
+orchard and halo2 findings touch the gadgets WAKE keeps; and whether a light-server verdict
+may substitute the tip's consensus branch when the server reports no height.
