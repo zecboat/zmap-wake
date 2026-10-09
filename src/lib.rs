@@ -50,7 +50,7 @@ pub mod witness;
 
 pub use circuit::{Kind, K};
 pub use prove::{prove_genesis, prove_hop, WakeProof};
-pub use verify::{verify_chain, verify_genesis, verify_hop, Verified, VerifyError, WakeFailure};
+pub use verify::{verify_chain, verify_genesis, verify_hop, verify_local, Verified, VerifyError, WakeFailure};
 pub use witness::Witness;
 
 /// Compile-time proof that every orchard internal Wake needs is reachable under

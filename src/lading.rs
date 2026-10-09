@@ -178,6 +178,27 @@ impl Lading {
         if l.to_bytes() != bytes {
             return Err(LadingError::NotJson("not in canonical form (WAKE-v1 section 7.3)".into()));
         }
+        // `to_bytes` writes strings as they are, so the round trip above does not see the
+        // case of hex or the padding of base64; section 7.3 fixes both (lower case; standard
+        // base64 with padding), and a lading rebuilt from knots is written that way, so one
+        // written otherwise would hash differently and show as Broken at its recipient
+        // (review 2026-10-09, regression Finding 6).
+        let lower_hex = |s: &str| s.len() == 64 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
+        if !lower_hex(&l.genesis.txid) {
+            return Err(LadingError::NotJson("genesis.txid is not 64 lower-case hex characters (WAKE-v1 section 7.3)".into()));
+        }
+        for (j, h) in l.hops.iter().enumerate() {
+            if !h.instance.iter().all(|r| lower_hex(r)) {
+                return Err(LadingError::NotJson(format!("hops[{j}].instance is not lower-case hex (WAKE-v1 section 7.3)")));
+            }
+            if h.proof.len() % 4 != 0
+                || !h.proof.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/' || b == b'=')
+                || h.proof.trim_end_matches('=').contains('=')
+                || h.proof.len() - h.proof.trim_end_matches('=').len() > 2
+            {
+                return Err(LadingError::NotJson(format!("hops[{j}].proof is not standard base64 with padding (WAKE-v1 section 7.3)")));
+            }
+        }
         Ok(l)
     }
 
@@ -198,6 +219,31 @@ pub fn lading_hash(bytes: &[u8]) -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn canonical_form_fixes_hex_case_and_base64_padding() {
+        // WAKE-v1 §7.3: lower-case hex, standard base64 with padding. Until 2026-10-09 the
+        // round-trip check saw neither (review, regression Finding 6).
+        let p = WakeProof {
+            kind: Kind::Genesis,
+            // A value whose hex has letters, so upper-casing it changes the text.
+            instance: [pallas::Base::from(0xabc_def), pallas::Base::from(2), pallas::Base::from(3)],
+            proof: vec![7u8; 10],
+        };
+        let mut l = Lading::new(&"ab".repeat(32), 0);
+        l.hops.push(ProofEntry::from_proof(&p, 1));
+        let good = l.to_bytes();
+        assert!(Lading::parse(&good).is_ok());
+        let upper_txid = String::from_utf8(good.clone()).unwrap().replacen(&"ab".repeat(32), &"AB".repeat(32), 1);
+        assert!(Lading::parse(upper_txid.as_bytes()).is_err(), "upper-case genesis txid");
+        let mut u = l.clone();
+        u.hops[0].instance[0] = u.hops[0].instance[0].to_ascii_uppercase();
+        assert!(Lading::parse(&u.to_bytes()).is_err(), "upper-case instance hex");
+        let mut np = l.clone();
+        np.hops[0].proof = np.hops[0].proof.trim_end_matches('=').to_string();
+        assert_ne!(np.hops[0].proof, l.hops[0].proof, "the fixture proof is padded");
+        assert!(Lading::parse(&np.to_bytes()).is_err(), "unpadded base64");
+    }
 
     #[test]
     fn entry_round_trips() {

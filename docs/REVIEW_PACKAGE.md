@@ -179,3 +179,24 @@ encodings; Sinsemilla incomplete-addition cases after the deletion; blinding suf
 this query profile; transcript binding of the instance in the IPA verifier; full-width `rcm`
 window aliasing; whether 100 blocks is the right `MIN_DEPTH` for a provider-checked result).
 Neither automated review is an external review in the sense of `WAKE-v1.md` §11 item 4.
+
+## A regression pass over the fixes (2026-10-09, same second model)
+
+The second model also re-read every commit from the first review's fixes onward, asking of
+each named finding what the attacker did before, whether the diff stops it, and what the diff
+opens. Three fixes did not close what they claimed, and the next commit closes them: the lading
+rule for a carrier without a `consignment_hash` (a unit at its first holder, or sent before
+0.7.0) still let a copy sent by anyone displace the genuine lading, because the rule was keyed
+on the note's ρ, which is public; the send planner preferred "has a lading" over "has a lading
+that verifies"; and the recovery-phrase export on a YubiKey wallet compared the PIN locally,
+with no lockout. The remedies: a lading is stored only after the oracle-free checks pass, and
+then only for the note it arrived with; a failed one is recorded against that copy; the send
+spends the copy whose lineage checks out best; the device proves the PIN. The rest of that
+pass (fee bound as a question rather than a refusal, chain source decided once at start and
+kept beside the wallet, one bounded registry client, a walk-in-progress guard, lower-case hex
+and padded base64 enforced in `Lading::parse`, and the documents here) is in the same commit.
+Its open questions for a human auditor are added above: whether a lading should ever be chosen
+by `(asset, ρ)` at all, whether a wallet may extend a lading it has not verified (the reference
+now never does), and whether a locally compared PIN could ever be acceptable (the reference no
+longer does that either).
+

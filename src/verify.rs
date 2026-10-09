@@ -183,13 +183,20 @@ pub struct Verified {
 /// `ρ = nf_j` implies `nf_j` was revealed, by consensus.
 ///
 /// The verifier reports *which* check failed and never succeeds on a subset.
-pub fn verify_chain(
+/// The checks that need no oracle, in order: the hash (when one is expected), the canonical
+/// parse, every entry's decoding, W3 (every proof verifies), W4 (the chain rule) and W5 (the
+/// note in hand descends from the last hop). Everything a forger controls fails here, as
+/// `LadingHashMismatch`, `Malformed`, `BadProof`, `ChainBreak` or `RhoMismatch`; what passes is
+/// a lading whose proofs are real and end at this note, which only its history can produce.
+///
+/// A wallet MUST run this before storing a lading from any route (Knotline, memos, file,
+/// drop-box): a lading that fails is evidence about its sender, never "the lading for" a
+/// carrier (review 2026-10-09, regression Finding 1). Returns the parsed lading and its proofs.
+pub fn verify_local(
     lading_bytes: &[u8],
     expected_hash: Option<[u8; 32]>,
     note_rho: &Rho,
-    oracle: &dyn ChainOracle,
-    min_depth: u32,
-) -> Result<Verified, WakeFailure> {
+) -> Result<(Lading, Vec<WakeProof>), WakeFailure> {
     if let Some(h) = expected_hash {
         if lading_hash(lading_bytes) != h {
             return Err(WakeFailure::LadingHashMismatch);
@@ -236,6 +243,48 @@ pub fn verify_chain(
     if note_rho.to_bytes() != final_nf {
         return Err(WakeFailure::RhoMismatch);
     }
+    Ok((lading, proofs))
+}
+
+#[cfg(test)]
+mod local_tests {
+    use super::*;
+    use crate::lading::{Lading, ProofEntry};
+    use base64::Engine;
+
+    /// A lading of the right shape with a made-up proof: the oracle-free checks must refuse it
+    /// as BadProof, so it is never stored as a carrier's lading (review 2026-10-09, regression
+    /// Finding 1). A ρ mismatch is told apart from a bad proof.
+    #[test]
+    fn a_made_up_proof_fails_locally_as_bad_proof() {
+        let rho_bytes = [0u8; 32];
+        let mut l = Lading::new(&"ab".repeat(32), 0);
+        l.hops.push(ProofEntry {
+            kind: crate::keys::KIND_V1.to_string(),
+            circuit: "genesis".to_string(),
+            instance: ["0".repeat(64), "0".repeat(64), "0".repeat(64)],
+            anchor_height: 1,
+            proof: base64::engine::general_purpose::STANDARD.encode(vec![7u8; 4960]),
+        });
+        let bytes = l.to_bytes();
+        let rho: Rho = Option::from(Rho::from_bytes(&rho_bytes)).unwrap();
+        assert!(matches!(verify_local(&bytes, None, &rho), Err(WakeFailure::BadProof(0))));
+        assert!(matches!(verify_local(&bytes, Some([9u8; 32]), &rho), Err(WakeFailure::LadingHashMismatch)));
+        let other: Rho = Option::from(Rho::from_bytes(&[1u8; 32])).unwrap();
+        // W3 runs before W5, so the proof is named first even when ρ is wrong too.
+        assert!(matches!(verify_local(&bytes, None, &other), Err(WakeFailure::BadProof(0))));
+    }
+}
+
+pub fn verify_chain(
+    lading_bytes: &[u8],
+    expected_hash: Option<[u8; 32]>,
+    note_rho: &Rho,
+    oracle: &dyn ChainOracle,
+    min_depth: u32,
+) -> Result<Verified, WakeFailure> {
+    let (lading, proofs) = verify_local(lading_bytes, expected_hash, note_rho)?;
+    let final_nf = proofs.last().unwrap().instance[crate::circuit::NF].to_repr();
 
     // W1: the genesis cmx is really at the designated output. (After W3-W5: see above.)
     let genesis_txid = decode_hex_32(&lading.genesis.txid)
