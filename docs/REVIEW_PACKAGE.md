@@ -236,3 +236,23 @@ should ever offer an unproven send of a carrier whose memo commits to a lading h
 provider default is acceptable at all, and whether any confusable-name heuristic suffices for
 an open registry.
 
+## The Knotline pass (2026-10-09, the first model, on the tree after hardening 14)
+
+A sixth session read Knotline v1 against the owner's node and a public light server. Integrity
+held as claimed: no crafted knot stores a mismatching lading, loops the walk, or gets a partial
+line accepted; the cryptographic part of section 6 held. Two things did not: a stranger's
+10,000-zat note with a key memo could make the wallet walk a 512-knot line of the stranger's
+choosing on every pass, with sends waiting for it; and the block cover of section 7 does not
+hide the wanted transaction from the server itself, which sees every transaction's action count
+in the compact blocks it serves and can pick the 14-action knot transfer out of each block
+(measured on the three mainnet transfers). The next commits answer the first (a walk runs
+automatically only for an asset a pinned manifest or a passed audit names, in a background job
+under a time and byte budget; the send collects only the unit being sent; a failed line backs
+off with a doubling delay kept in the database; the walk is bounded in hops per knot and bytes;
+a wrong hint stops the fetch) and state the second plainly in section 7 and the trust model,
+with a uniform transfer shape planned for 0.7.2. Its questions for a human auditor: the shared
+derived spending key of the knot address under Orchard's key structure; whether the
+rho-uniqueness argument for the chaining rule needs any assumption beyond nullifier uniqueness;
+mempool and relay limits for a six-proof start of line; what else in a compact block
+distinguishes a knot transfer; whether OVK recovery of knot outputs is the right default.
+

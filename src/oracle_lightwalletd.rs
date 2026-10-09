@@ -196,21 +196,33 @@ impl LightwalletdOracle {
                     let mut c = connect(&url).await?;
                     // With a hint: list the block's transactions and fetch the wanted one among
                     // the others. The cover is only as honest as the server (audit 2026-10-08,
-                    // Knotline D): a server that answers the block list with nothing, or fails
-                    // the wanted fetch early, used to be given a direct request for the wanted
-                    // id. Now a hinted fetch never asks by id alone: the block list is used
-                    // whether or not it names the wanted transaction, and an empty list is
-                    // "could not be checked", never a direct ask.
+                    // Knotline D): every request of the set is made whatever each answers. When
+                    // the hinted block and its neighbours offer no cover, the transaction is
+                    // asked for by itself (the trade of 2026-10-09, KNOTLINE-v1 section 7). The
+                    // hint is the line's author's word: a hint above the tip, or a block list
+                    // that does not name the wanted transaction, is a wrong hint and stops the
+                    // fetch, and the height the server reports is compared with it afterwards
+                    // (review 2026-10-09, Knotline C).
                     let mut ask: Vec<Vec<u8>> = vec![want.clone()];
                     if let Some(h) = hint {
+                        let tip = c.get_latest_block(ChainSpec {}).await.context("GetLatestBlock")?.into_inner().height;
+                        if u64::from(h) > tip {
+                            return Err(anyhow!("the hinted block {h} is above the server's tip {tip}; the hint is wrong"));
+                        }
+                        let mut listed = false;
                         let id = BlockId { height: h as u64, hash: vec![] };
                         let range = BlockRange { start: Some(id.clone()), end: Some(id), pool_types: vec![] };
                         let mut others: Vec<Vec<u8>> = Vec::new();
                         if let Ok(resp) = c.get_block_range(range).await {
                             let mut stream = resp.into_inner();
                             if let Ok(Some(block)) = stream.message().await {
-                                others = block.vtx.into_iter().map(|t| t.txid).filter(|t| t.len() == 32 && *t != want).collect();
+                                let all: Vec<Vec<u8>> = block.vtx.into_iter().map(|t| t.txid).filter(|t| t.len() == 32).collect();
+                                listed = all.iter().any(|t| *t == want);
+                                others = all.into_iter().filter(|t| *t != want).collect();
                             }
+                        }
+                        if !listed {
+                            return Err(anyhow!("block {h} does not list the transaction the hint named it for; the hint is wrong"));
                         }
                         if others.is_empty() {
                             // A genesis is often alone in its block (both published vectors
@@ -250,6 +262,11 @@ impl LightwalletdOracle {
                             Ok(r) if mine => {
                                 let raw = r.into_inner();
                                 let height = if raw.height == 0 || raw.height > u32::MAX as u64 { 0 } else { raw.height as u32 };
+                                if let Some(h) = hint {
+                                    if height != 0 && height != h {
+                                        failure = Some(anyhow!("the server reports height {height} for a transaction the hint placed at {h}; the hint is wrong"));
+                                    }
+                                }
                                 found = Some((height, raw.data));
                             }
                             Ok(_) => {}

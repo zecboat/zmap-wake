@@ -126,10 +126,12 @@ When a carrier is transferred with a lading of `n` proofs (the `n`-th made for t
 WAKE §8 "prove before broadcast"):
 
 1. If the transaction in which the sender received the carrier contains a key memo addressed to
-   the sender, **and the sender's own lading for this carrier was rebuilt from the line under
-   that key** (its stored copy records that provenance), the line already holds proofs
-   `1 … n−1`. The knot is: has-previous, with that key and that transaction's id, and hop `n`
-   only. A key memo alone MUST NOT be chained to: an earlier holder can add one with a random
+   the sender's own receiver (the account and address the carrier came to), **and the sender's
+   own lading for this carrier was rebuilt from the line under exactly that key, starting at
+   exactly that transaction** (the stored copy records the pair and the number of knots walked),
+   the line already holds proofs `1 … n−1`. The knot is: has-previous, with that key and that
+   transaction's id, and hop `n` only. A line the reader will refuse is not extended: once the
+   recorded walk reached `MAX_KNOTS − 1` knots the item starts a new line instead (§5.3). A key memo alone MUST NOT be chained to: an earlier holder can add one with a random
    key and hand the real lading over another way, and every later sender would then tie knots
    nobody can open. A sender MUST only chain if the lading it is about to commit to is in
    canonical serialisation (WAKE §7.3), since the recipient will rebuild it and compare hashes.
@@ -156,10 +158,15 @@ When a carrier arrives whose memo commits to a lading the wallet does not hold:
    actions with it, and reassemble the knot (§3.4).
 3. If the knot is has-previous, repeat step 2 with the previous key on the previous
    transaction, until a has-genesis knot is reached. A reader MUST stop with an error on a
-   repeated transaction and MUST bound the number of knots it follows (reference: 512; each
-   knot is a round trip to the chain source). A reader SHOULD NOT start a walk for a carrier
-   whose memo fails the offline ZMAP checks, SHOULD NOT retry a failed line at once, and MUST
-   NOT hold the display of holdings or a send on a walk. "The source does not know the
+   repeated transaction, MUST bound the number of knots it follows (reference: 512; each knot
+   is a round trip to the chain source), MUST refuse a has-previous knot with more than one hop
+   and a has-genesis knot with more than a stated number of hops (reference: 64), and MUST
+   bound the bytes a walk holds (reference: 8 MB). A wallet SHOULD walk automatically only for
+   a carrier whose asset a trusted manifest or a passed registry audit names, and offer the
+   walk on demand for any other carrier; a walk nobody asked for MUST run under a time and byte
+   budget, MUST NOT hold the display of holdings or a send, and a failed line SHOULD back off
+   with a growing delay that survives a restart (review 2026-10-09). The send collects only
+   the carrier being sent. "The source does not know the
    transaction" and "the key opens no knot in it" are different outcomes and MUST be reported
    as such; neither is "broken".
 4. Build the lading: the genesis outpoint of the first knot, then every hop in order from the
@@ -199,10 +206,17 @@ the wallet is checking a lineage, and the blocks in which the item changed hands
 To narrow this, a reader that knows the block of a wanted transaction SHOULD fetch that block's
 shielded transactions together and keep the one it needs. The block is known: a hop's anchor
 height is the block its note was mined in, which is the block of the previous knot's
-transaction. This hides which transaction was wanted, not the block, and blocks often hold few
-shielded transactions. It holds against an honest server only: a server that fails requests
-selectively can learn the wanted id; so a hinted reader MUST make every request of the cover
-set whatever each answers. When the hinted block holds nothing but the wanted transaction
+transaction. **What this achieves, stated plainly (2026-10-09):** it hides the wanted
+transaction only from an observer who sees the list of fetched ids and nothing else. The server
+itself sees each transaction's action count in the compact blocks it serves, and a knot transfer
+(14 actions; 34 or more for a start of line) is the outlier in nearly every block, so an honest
+server picks the wanted transaction out of the cover (measured on the three mainnet transfers of
+§9). Through a provider, a walk reveals the item's transfer chain to that provider, with the
+reader's network address; a reader with its own node reveals nothing. The remedies are a uniform
+transfer shape (planned for 0.7.2: every transfer padded to the knot shape) and an anonymising
+transport. A hinted reader MUST make every request of the cover set whatever each answers, MUST
+treat a hint above the tip, or a block that does not list the wanted transaction, as a wrong
+hint and stop, and MUST compare the height the server reports with the hint. When the hinted block holds nothing but the wanted transaction
 (a genesis often does), the reader SHOULD list the two blocks on either side and take its
 cover from them; only when those hold nothing either MAY it ask for the transaction by itself.
 An honest server learns nothing new from that ask, since its own block list named one
@@ -253,7 +267,13 @@ Transactions of the reference run, with a throwaway test item: start
   from that account.
 - **A leaked knot key** reveals the line up to that knot and nothing after it.
 - **Permanence.** A knot cannot be withdrawn. Whatever a future break of the encryption reveals
-  about old knots stays revealed.
+  about old knots stays revealed. A start-of-line knot publishes, under a key every later holder
+  receives, the hops of earlier holders who had sent by file; those holders are not asked. A
+  wallet MAY decline to start a line that contains other parties' hops.
+- **The sender's own records.** Besides the OVK route, the sender's wallet database keeps the
+  key memo and the knot outputs it sent as plaintext sent-note memos (the backend's schema), so
+  a copied database is a second way to the keys the sender handed out, independent of the OVK
+  decision; discarding the OVK alone would not close it.
 - **Shape.** A transfer carrying a knot is larger than a plain one and can be recognised as
   such. Because every knot has the same shape, the shape does not reveal the length of the
   history; a line started with earlier history is the exception, once.

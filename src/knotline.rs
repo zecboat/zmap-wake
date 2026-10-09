@@ -46,7 +46,12 @@ const HEAD: usize = 1 + 4 + 2 + 2;
 const CHUNK: usize = 512 - HEAD;
 const KIND_V1: &str = "wake-v1";
 /// The longest walk back a reader will make.
-pub const MAX_KNOTS: usize = 512; // 4096 until 2026-10-08: each knot is a server round trip (audit, Knotline B)
+pub const MAX_KNOTS: usize = 512;
+/// A first knot (has-genesis) carries the history an item joins the line with; the reference
+/// sender starts a line with at most six hops, and no honest line needs more than this.
+pub const MAX_FIRST_HOPS: usize = 64;
+/// The most packed-knot bytes one walk will hold (review 2026-10-09, Knotline D).
+pub const MAX_WALK_BYTES: usize = 8 * 1024 * 1024; // 4096 until 2026-10-08: each knot is a server round trip (audit, Knotline B)
 
 fn hexs(x: &[u8]) -> String {
     x.iter().map(|v| format!("{v:02x}")).collect()
@@ -243,12 +248,26 @@ pub fn walk_back(
     let mut height: Option<u32> = None;
     let mut seen: HashSet<[u8; 32]> = HashSet::new();
     let mut groups: Vec<Vec<ProofEntry>> = Vec::new();
+    let mut total_bytes = 0usize;
     let genesis = loop {
         if !seen.insert(txid) || seen.len() > MAX_KNOTS {
             return Err(anyhow!("the Knotline loops or is longer than {MAX_KNOTS} knots"));
         }
         let bytes = open(&key, &txid, height)?.ok_or_else(|| anyhow!("no knot opens with the key in hand in transaction {}…", hexs(&txid[..6])))?;
+        // Bounds on what a line can make a reader hold (review 2026-10-09, Knotline D): a
+        // later knot carries exactly its own hop, a first knot at most MAX_FIRST_HOPS, and the
+        // whole walk at most MAX_WALK_BYTES of packed knots.
+        total_bytes += bytes.len();
+        if total_bytes > MAX_WALK_BYTES {
+            return Err(anyhow!("the Knotline is larger than {MAX_WALK_BYTES} bytes; refused"));
+        }
         let r = unpack_knot(&bytes)?;
+        if r.prev.is_some() && r.hops.len() != 1 {
+            return Err(anyhow!("a later knot carries {} hops; exactly one is allowed", r.hops.len()));
+        }
+        if r.genesis.is_some() && r.hops.len() > MAX_FIRST_HOPS {
+            return Err(anyhow!("the first knot carries {} hops; at most {MAX_FIRST_HOPS} are allowed", r.hops.len()));
+        }
         groups.push(r.hops);
         match r.prev {
             Some((k, t)) => {
@@ -272,6 +291,47 @@ pub fn walk_back(
 
 #[cfg(test)]
 mod tests {
+    /// A line the reader must refuse: a later knot with two hops, and one knot past the bound
+    /// (review 2026-10-09, Knotline D and H).
+    #[test]
+    fn walks_are_bounded_in_hops_per_knot_and_in_knots() {
+        use super::*;
+        use base64::Engine;
+        let hop = |n: u32| ProofEntry {
+            kind: super::super::keys::KIND_V1.to_string(),
+            circuit: if n == 0 { "genesis".into() } else { "hop".into() },
+            instance: [format!("{:064x}", n + 1), format!("{:064x}", n + 2), format!("{:064x}", n + 3)],
+            anchor_height: 1,
+            proof: base64::engine::general_purpose::STANDARD.encode(vec![7u8; 8]),
+        };
+        // A two-hop later knot.
+        let bad = pack_knot(&Knot { prev: Some(([1u8; 32], [2u8; 32])), genesis: None, hops: vec![hop(1), hop(2)] }).unwrap();
+        let mut open_bad = |_: &[u8; 32], _: &[u8; 32], _: Option<u32>| Ok(Some(bad.clone()));
+        let err = walk_back([9u8; 32], [8u8; 32], &mut open_bad).unwrap_err().to_string();
+        assert!(err.contains("exactly one"), "{err}");
+        // MAX_KNOTS + 1 minimal knots in a chain: txid i links to i - 1; refused before the end.
+        let n = MAX_KNOTS + 1;
+        let knot_at = |i: usize| -> Vec<u8> {
+            let mut t = [0u8; 32];
+            t[..8].copy_from_slice(&(i as u64).to_le_bytes());
+            if i == 0 {
+                pack_knot(&Knot { prev: None, genesis: Some(("ab".repeat(32), 0)), hops: vec![hop(0)] }).unwrap()
+            } else {
+                let mut p = [0u8; 32];
+                p[..8].copy_from_slice(&((i - 1) as u64).to_le_bytes());
+                pack_knot(&Knot { prev: Some(([3u8; 32], p)), genesis: None, hops: vec![hop(i as u32)] }).unwrap()
+            }
+        };
+        let mut open_long = |_: &[u8; 32], txid: &[u8; 32], _: Option<u32>| {
+            let i = u64::from_le_bytes(txid[..8].try_into().unwrap()) as usize;
+            Ok(Some(knot_at(i)))
+        };
+        let mut top = [0u8; 32];
+        top[..8].copy_from_slice(&((n - 1) as u64).to_le_bytes());
+        let err = walk_back([3u8; 32], top, &mut open_long).unwrap_err().to_string();
+        assert!(err.contains("longer than"), "{err}");
+    }
+
     #[test]
     fn trailing_bytes_after_a_knot_are_refused() {
         let k = super::Knot {
