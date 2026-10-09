@@ -419,7 +419,7 @@ Low and Informational: with no manifest genesis the oracle-free checks were skip
 failing lading of an unknown asset read "unverified" rather than Broken (fixed: those checks
 run whatever the manifest says); a send whose record is not in the transfer could lose that
 record for good on a local write failure after signing, with nothing shown (fixed: the sealed
-file is written from memory before any database write, the sender's copy is stored before the
+file is written from memory after signing and before the lineage rows, the sender's copy is stored before the
 lineage row, and the confirmation says beforehand when a record will not travel); the
 broadcast reply is now read under a bound; opening the send of an asset no manifest lists
 walks its lines, which KNOTLINE §6 now counts as asking; row 9 said grey for an amber state.
@@ -428,3 +428,25 @@ Its questions for a human auditor: whether a pinned key's manifest is exhaustive
 asset has no manifest genesis deserves a state of its own; the 2026 orchard and halo2
 findings against the kept gadgets in the pinned versions; and whether a lineage record must
 be persisted before the transaction is stored.
+
+## The gate's seventh pass (2026-10-09, over hardening 12 to 21)
+
+A thirteenth session re-read hardening 12 to 21 and catch-up 7 to 16 and found the sixth
+pass's Medium closed: a forgery naming a pinned key reads red. It found no Critical or High,
+and one Medium that hardening 21 itself opened: the decision read the `ik` of every memo held
+under the asset id from raw JSON, so a stranger's single carrier note with a bare `ik` and no
+`desc`, which the memo parser accepted as a pre-v1 memo, turned a genuine unit's badge red,
+named after a pinned collection (shown by a probe). Hardening 22 answers it at the root: a
+memo claims a key only when its `ik` and `desc` derive the asset id (ZMAP §4), so a claim
+cannot cross from one key's asset to another's; and half a v1 memo, `ik` without `desc` or
+the reverse, is no unit at all. The decision's glue is now a pure function with the decoy
+beside a genuine memo as a test. The pass's two Lows are answered as well: "a key this wallet
+knows" is scoped per registration, so a key reused for a second, unchecked collection is not
+exhaustive for it and an audit cached without its manifest does not count; and a key whose
+newest audit failed is red "check failed", not amber "not checked yet". Its remaining items:
+the advance notice that a record will not travel now covers a first send from the genesis
+output with the route off, and the finished send names the saved file; the dead first-memo
+helper is gone. Left as cost: the oracle-free checks re-run on every badge view of an
+unlisted asset's lading. The pass's questions for a human auditor: whether a per-asset
+issuance verdict computed from memos is sound at all, or must be per carrier and tied to the
+lineage; and the 2026 orchard and halo2 findings against the kept gadgets.
