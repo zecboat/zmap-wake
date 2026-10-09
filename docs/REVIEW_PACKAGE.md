@@ -200,3 +200,23 @@ by `(asset, ρ)` at all, whether a wallet may extend a lading it has not verifie
 now never does), and whether a locally compared PIN could ever be acceptable (the reference no
 longer does that either).
 
+## The wallet and ZMAP pass (2026-10-09, the first model again, on the fixed tree)
+
+A fourth automated session read ZMAP v0.5 and the wallet on the tree with every earlier fix in.
+It found one High: the wallet named an issuer by a self-chosen name plus 32 bits of its key,
+and the Registry is open, so an impostor with a ground key and the same name reached the same
+green badge (measured grind rate reported). Remedied the same day: the keys of the collections
+the wallet vouches for are pinned in the binary, a registry-only collection is never green,
+the fingerprint shown is long, and a look-alike name is flagged. It also found that a stranger's
+upper-case copy of an asset id framed the genuine unit in the issuance check (now: lower-case
+ids only, every copy judged), that the collection audit ran through the provider whatever the
+setting and took transactions on trust (now: through the chain source, checked against the
+id, labelled), that the audit's post-close check was narrower than the specification (now:
+any output after the close is a breach), and a list of smaller items (the viewing key gated
+like the seed; the installer verifying a signed manifest before trusting its sums; proxies
+ignored; the CSP tightened). Its questions for a human auditor: whether any fingerprint
+shorter than the full key is acceptable for issuer identity; Unicode normalisation of the
+description an asset id is derived from; whether the §5.4 lineage lock can be abused to lock
+a large note; the spendable-note semantics of the pinned `zcash_client_sqlite` for a stored
+unmined transaction.
+
