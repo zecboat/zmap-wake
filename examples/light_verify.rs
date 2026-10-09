@@ -18,7 +18,7 @@ use orchard::note::Rho;
 use std::path::Path;
 use zcash_protocol::consensus::Network;
 use zmap_wake::lading::{Lading, ProofEntry};
-use zmap_wake::oracle::{reversed, MIN_DEPTH};
+use zmap_wake::oracle::{reversed, OracleTrust, MIN_DEPTH};
 use zmap_wake::oracle_lightwalletd::LightwalletdOracle;
 use zmap_wake::wallet_notes::{received_notes_in_tx, witness_at};
 use zmap_wake::wallet_path::{open_wallet_copy, open_wallet_copy_sql};
@@ -71,8 +71,10 @@ fn main() -> Result<()> {
             Ok(v) => {
                 ok += 1;
                 println!(
-                    "lading {id}  asset {}…  hops {hops}  OK  trust {:?}  min anchor depth {}  ({:.1}s)",
-                    &asset_id[..16.min(asset_id.len())], v.trust, v.min_anchor_depth, t.elapsed().as_secs_f64()
+                    "lading {id}  asset {}…  hops {hops}  {}  min anchor depth {}  ({:.1}s)",
+                    &asset_id[..16.min(asset_id.len())],
+                    match v.trust { OracleTrust::FullNode => "Verified (own node)", OracleTrust::ServerAsserted => "Checked via provider (not verified)" },
+                    v.min_anchor_depth, t.elapsed().as_secs_f64()
                 );
             }
             Err(e) => {
@@ -116,6 +118,6 @@ fn main() -> Result<()> {
             Err(e) => { bad += 1; println!("    next hop proved in {proved:.1}s but the extended lading FAILED: {e:?}") }
         }
     }
-    println!("{ok} verified, {bad} failed, {:.1}s in all", started.elapsed().as_secs_f64());
+    println!("{ok} passed (checked via provider, not verified), {bad} failed, {:.1}s in all", started.elapsed().as_secs_f64());
     Ok(())
 }

@@ -49,6 +49,9 @@ pub struct LightwalletdOracle {
 
 /// At most this many transactions of a block are fetched as cover for the one wanted.
 const MAX_COVER: usize = 24;
+/// Blocks on either side of a hinted block that are listed for cover when the hinted block
+/// holds nothing but the wanted transaction (review 2026-10-09, Issue D).
+const COVER_SPAN: u32 = 2;
 
 impl std::fmt::Debug for LightwalletdOracle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -108,8 +111,14 @@ impl LightwalletdOracle {
     /// asked of the server anyway when the anchor is checked. With the hint, the oracle fetches
     /// the block's shielded transactions (all of them, or [`MAX_COVER`] chosen at random
     /// including the wanted one, in random order) and keeps the one it needs. The server then
-    /// learns nothing beyond the block. A wrong hint costs nothing but the cover: the
-    /// transaction is then fetched directly.
+    /// learns nothing beyond the block. When the block holds nothing else, the two blocks on
+    /// either side are listed too; when even those hold nothing, the transaction is asked for
+    /// by itself (an honest server already knew the only candidate from the block list; an
+    /// actively lying one could force this by answering five block lists with nothing, which
+    /// is the trade accepted on 2026-10-09, KNOTLINE-v1 §7).
+    ///
+    /// A hint is a privacy device, never a fact: nothing the oracle returns is derived from
+    /// it, and a wrong hint costs nothing but the cover.
     pub fn hint_height(&self, txid: &[u8; 32], height: u32) {
         self.hints.borrow_mut().insert(*txid, height);
     }
@@ -128,7 +137,7 @@ impl LightwalletdOracle {
         let height = on_thread(move || async move {
             let mut c = connect(&url).await?;
             let id = c.get_latest_block(ChainSpec {}).await.context("GetLatestBlock")?.into_inner();
-            Ok(id.height as u32)
+            u32::try_from(id.height).map_err(|_| anyhow!("GetLatestBlock: {} is not a block height", id.height))
         })?;
         *self.tip.borrow_mut() = Some(height);
         Ok(height)
@@ -147,6 +156,11 @@ impl LightwalletdOracle {
                 .await
                 .context("GetTreeState")?
                 .into_inner();
+            // The answer must be for the height asked: a server answering another height's
+            // tree would otherwise only fail the root comparison, or pass it by chance.
+            if ts.height != height as u64 {
+                return Err(anyhow!("GetTreeState answered for height {} instead of {height}", ts.height));
+            }
             let tree = ts.ironwood_tree().context("parse ironwood tree from TreeState")?;
             let root: Anchor = tree.root().into();
             let frontier = tree
@@ -161,8 +175,9 @@ impl LightwalletdOracle {
 
     /// Fetch a transaction by id and make sure the bytes returned ARE that transaction: the
     /// id is recomputed from them. A server can therefore withhold a transaction but cannot
-    /// substitute another. Returns the height the server reports (0 when it reports none) and
-    /// the bytes; `None` when the server does not know the id. `txid` in display order.
+    /// substitute another. Returns the height the server reports (0 when it reports none;
+    /// never the caller's hint) and the bytes; `None` when the server does not know the id.
+    /// `txid` in display order.
     ///
     /// The reported height is not relied on. Some servers return 0 for transactions outside
     /// their recent window even though they are mined (seen 2026-10-06 with zainod 0.10.0 in
@@ -198,7 +213,20 @@ impl LightwalletdOracle {
                             }
                         }
                         if others.is_empty() {
-                            return Err(anyhow!("the server offered no cover for block {h}; not asking for the transaction by itself"));
+                            // A genesis is often alone in its block (both published vectors
+                            // are). Widen to the neighbouring blocks before giving up on cover.
+                            let (lo, hi) = (h.saturating_sub(COVER_SPAN), h.saturating_add(COVER_SPAN));
+                            let range = BlockRange {
+                                start: Some(BlockId { height: lo as u64, hash: vec![] }),
+                                end: Some(BlockId { height: hi as u64, hash: vec![] }),
+                                pool_types: vec![],
+                            };
+                            if let Ok(resp) = c.get_block_range(range).await {
+                                let mut stream = resp.into_inner();
+                                while let Ok(Some(block)) = stream.message().await {
+                                    others.extend(block.vtx.into_iter().map(|t| t.txid).filter(|t| t.len() == 32 && *t != want));
+                                }
+                            }
                         }
                         others.shuffle(&mut rand::rngs::OsRng);
                         others.truncate(MAX_COVER - 1);
@@ -208,7 +236,7 @@ impl LightwalletdOracle {
                     if std::env::var_os("ZECBOAT_WAKE_TRACE").is_some() {
                         match hint {
                             Some(h) if ask.len() > 1 => eprintln!("[wake] asking the server for {} transactions of block {h} (one is wanted)", ask.len()),
-                            Some(h) => eprintln!("[wake] asking the server for one transaction directly (block {h} offered no cover)"),
+                            Some(h) => eprintln!("[wake] asking the server for one transaction directly (blocks {}..={} offered no cover)", h.saturating_sub(COVER_SPAN), h.saturating_add(COVER_SPAN)),
                             None => eprintln!("[wake] asking the server for one transaction directly (its block is not known)"),
                         }
                     }
@@ -233,7 +261,9 @@ impl LightwalletdOracle {
                     if let Some(e) = failure {
                         return Err(e);
                     }
-                    Ok(found.map(|(h, data)| (if h == 0 { hint.unwrap_or(0) } else { h }, data)))
+                    // The server's height, or 0 when it reports none. Never the hint: a hint
+                    // is the caller's guess (for a lading, the sender's), not a fact.
+                    Ok(found)
                 })?
             }
         };

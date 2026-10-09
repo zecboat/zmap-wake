@@ -23,6 +23,7 @@ the stable identity of a circuit's shape, 900,319 bytes each.
 | lookups | 3 |
 | `max_deg` | 9 |
 | rows used at `K = 11` | 1,289 of 2,048 |
+| `blinding_factors()` | 5, so the last 6 rows of every advice column are unusable: usable rows 2,042 (`K = 10` does not fit). Recorded 2026-10-09 from a fresh keygen. |
 
 **`diff pinned_vk_hop.txt pinned_vk_genesis.txt` is two lines**: two permutation commitments.
 Every gate, lookup, column and selector is identical between the two circuits. The only

@@ -123,9 +123,8 @@ impl ZebradOracle {
     /// The node's current block height.
     pub fn tip_height(&self) -> Result<u32> {
         let v = self.rpc("getblockcount", json!([]))?;
-        v.as_u64()
-            .map(|h| h as u32)
-            .ok_or_else(|| anyhow!("getblockcount: not a number"))
+        let h = v.as_u64().ok_or_else(|| anyhow!("getblockcount: not a number"))?;
+        u32::try_from(h).map_err(|_| anyhow!("getblockcount: {h} is not a block height"))
     }
 
     /// The Ironwood tree state at the end of block `height` (`z_gettreestate`), cached.
@@ -161,8 +160,10 @@ impl ZebradOracle {
 
         // The node's finalRoot must agree with the parsed tree; if it does not, the
         // encoding we assumed is wrong and no path built from this frontier can verify.
+        // One byte order: the node's finalRoot is the root's canonical encoding, as observed on
+        // mainnet; accepting either order loosened a sanity check for nothing (review 2026-10-09).
         let reported = decode_hex_32(final_root)?;
-        if root.to_bytes() != reported && root.to_bytes() != reversed(reported) {
+        if root.to_bytes() != reported {
             bail!("ironwood finalRoot at {height} does not match the parsed tree root");
         }
         let ts = IronwoodTreeState {
@@ -197,6 +198,15 @@ impl ZebradOracle {
     /// The raw bytes of a mined transaction and its height; `None` if not known as mined.
     /// `txid_hex` in display order.
     pub fn raw_transaction(&self, txid_hex: &str) -> Result<Option<(u32, Vec<u8>)>> {
+        Ok(self.checked_transaction(txid_hex)?.map(|(h, raw, _)| (h, raw)))
+    }
+
+    /// The mined transaction, parsed from the node's `hex` and checked against the id asked
+    /// for. Everything read from a transaction goes through here: the JSON `actions` array the
+    /// node also sends is never used, so the node cannot answer with bytes for one transaction
+    /// and actions of another (review 2026-10-09, Issue B; for a loopback node this is defence
+    /// in depth, for a zebrad reached over a network it is the same check the light path makes).
+    fn checked_transaction(&self, txid_hex: &str) -> Result<Option<(u32, Vec<u8>, zcash_primitives::transaction::Transaction)>> {
         let Some(v) = self.get_mined_transaction(txid_hex)? else { return Ok(None) };
         let Some(height) = v.get("height").and_then(Value::as_u64) else {
             return Ok(None);
@@ -214,37 +224,23 @@ impl ZebradOracle {
         if tx.txid().as_ref() != &reversed(asked) {
             bail!("the node answered with a different transaction than the one asked for");
         }
-        Ok(Some((height as u32, raw)))
+        Ok(Some((height as u32, raw, tx)))
     }
 
-    /// The Ironwood Actions of a mined transaction, and the height it was mined at.
-    /// `None` if the node does not know the transaction as mined.
+    /// The Ironwood Actions of a mined transaction, and the height it was mined at, read from
+    /// the checked bytes. `None` if the node does not know the transaction as mined.
     pub fn ironwood_actions(&self, txid_hex: &str) -> Result<Option<(u32, Vec<IronwoodAction>)>> {
-        let Some(v) = self.get_mined_transaction(txid_hex)? else { return Ok(None) };
-        let Some(height) = v.get("height").and_then(Value::as_u64) else {
-            return Ok(None);
-        };
-        let acts = v
-            .pointer("/ironwood/actions")
-            .and_then(Value::as_array)
-            .cloned()
-            .ok_or_else(|| anyhow!("getrawtransaction: no /ironwood/actions in the node's answer"))?;
-        let mut out = Vec::with_capacity(acts.len());
-        for a in &acts {
-            let nf = a
-                .get("nullifier")
-                .and_then(Value::as_str)
-                .ok_or_else(|| anyhow!("action without nullifier"))?;
-            let cmx = a
-                .get("cmx")
-                .and_then(Value::as_str)
-                .ok_or_else(|| anyhow!("action without cmx"))?;
-            out.push(IronwoodAction {
-                nullifier: decode_hex_32(nf)?,
-                cmx: decode_hex_32(cmx)?,
-            });
-        }
-        Ok(Some((height as u32, out)))
+        let Some((height, _, tx)) = self.checked_transaction(txid_hex)? else { return Ok(None) };
+        let actions = tx
+            .ironwood_bundle()
+            .map(|b| {
+                b.actions()
+                    .iter()
+                    .map(|a| IronwoodAction { nullifier: a.nullifier().to_bytes(), cmx: a.cmx().to_bytes() })
+                    .collect()
+            })
+            .unwrap_or_default();
+        Ok(Some((height, actions)))
     }
 }
 
@@ -256,21 +252,17 @@ fn http_post_json(url: &str, body: &str) -> Result<Vec<u8>> {
     use std::net::{TcpStream, ToSocketAddrs};
     use std::time::Duration;
 
-    let rest = url.strip_prefix("http://").ok_or_else(|| anyhow!("{url}: not an http:// address"))?;
-    let (hostport, path) = match rest.find('/') {
-        Some(i) => (&rest[..i], &rest[i..]),
-        None => (rest, "/"),
-    };
-    let with_port = if hostport.rsplit_once(':').map(|(_, p)| p.parse::<u16>().is_ok()).unwrap_or(false) {
-        hostport.to_string()
-    } else {
-        format!("{hostport}:80")
-    };
+    // The same parse decides the trust level (`is_local_url`) and the socket address, so the
+    // two cannot disagree (review 2026-10-09, Issue E: they used to).
+    let u = parse_http_url(url)?;
+    let hostport = format!("{}:{}", u.host_for_header(), u.port);
+    let path = u.path.as_str();
+    let local = u.local;
+    let with_port = (u.host.as_str(), u.port);
     let mut last = None;
     let mut stream = None;
     // A URL that claims to be local is connected to loopback only: `localhost` is whatever the
     // resolver says, and the trust decision was made on the name (audit 2026-10-08, WAKE F-2).
-    let local = is_local_url(url);
     for addr in with_port.to_socket_addrs().with_context(|| format!("{url}: cannot resolve the address"))? {
         if local && !addr.ip().is_loopback() {
             continue;
@@ -341,30 +333,79 @@ fn http_post_json(url: &str, body: &str) -> Result<Vec<u8>> {
 /// Zecboat D). What this still cannot see: a tunnel or proxy on loopback, or another process
 /// squatting the port while no zebrad runs; those are stated limits, not detected ones.
 pub fn is_local_url(url: &str) -> bool {
-    local_host_of(url).is_some()
+    parse_http_url(url).map(|u| u.local).unwrap_or(false)
 }
 
-/// The host part of a local node URL, or `None` if the URL is not one (see [`is_local_url`]).
-fn local_host_of(url: &str) -> Option<String> {
-    let rest = url.strip_prefix("http://")?;
-    let hostport = rest.split(['/', '?', '#']).next().unwrap_or("");
-    if hostport.contains('@') || hostport.is_empty() {
-        return None;
+/// A node address, parsed once for both the trust decision and the connection.
+struct HttpUrl {
+    /// The host as written: `localhost`, an IPv4 literal, or an IPv6 literal without brackets.
+    host: String,
+    port: u16,
+    path: String,
+    /// `localhost`, `127.0.0.0/8` or `::1`, as WAKE-v1 §8.1 lists them. Nothing else: not a
+    /// v4-mapped IPv6 literal (which the socket layer could not use anyway), not a DNS name.
+    local: bool,
+}
+
+impl HttpUrl {
+    fn host_for_header(&self) -> String {
+        if self.host.contains(':') {
+            format!("[{}]", self.host)
+        } else {
+            self.host.clone()
+        }
     }
-    let host = if let Some(h) = hostport.strip_prefix('[') {
-        h.split(']').next().unwrap_or("")
+}
+
+/// `http://host[:port][/path]`, strictly: no scheme but `http`, no userinfo, no whitespace or
+/// control characters, an IPv6 literal only in brackets, a port that is a `u16`.
+fn parse_http_url(url: &str) -> Result<HttpUrl> {
+    if url.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        bail!("{url:?}: whitespace or control characters in the address");
+    }
+    let rest = url.strip_prefix("http://").ok_or_else(|| anyhow!("{url}: not an http:// address"))?;
+    let (hostport, path) = match rest.find(['/', '?', '#']) {
+        Some(i) => (&rest[..i], &rest[i..]),
+        None => (rest, "/"),
+    };
+    if hostport.is_empty() || hostport.contains('@') {
+        bail!("{url}: no host, or a userinfo part");
+    }
+    let (host, port) = if let Some(r) = hostport.strip_prefix('[') {
+        let (h, after) = r.split_once(']').ok_or_else(|| anyhow!("{url}: unbalanced bracket"))?;
+        let port = match after {
+            "" => 80,
+            p => p
+                .strip_prefix(':')
+                .and_then(|p| p.parse::<u16>().ok())
+                .ok_or_else(|| anyhow!("{url}: the port is not a number between 0 and 65535"))?,
+        };
+        if h.parse::<std::net::Ipv6Addr>().is_err() {
+            bail!("{url}: brackets hold an IPv6 literal only");
+        }
+        (h.to_string(), port)
+    } else if hostport.matches(':').count() > 1 {
+        bail!("{url}: an IPv6 literal must be in brackets");
     } else {
-        hostport.rsplit_once(':').map(|(h, _)| h).unwrap_or(hostport)
+        match hostport.rsplit_once(':') {
+            Some((h, p)) => (
+                h.to_string(),
+                p.parse::<u16>().map_err(|_| anyhow!("{url}: the port is not a number between 0 and 65535"))?,
+            ),
+            None => (hostport.to_string(), 80),
+        }
     };
-    if host.eq_ignore_ascii_case("localhost") {
-        return Some("localhost".into());
+    if host.is_empty() {
+        bail!("{url}: no host");
     }
-    let ip: std::net::IpAddr = host.parse().ok()?;
-    let loopback = match ip {
-        std::net::IpAddr::V4(v4) => v4.is_loopback(),
-        std::net::IpAddr::V6(v6) => v6.is_loopback() || v6.to_ipv4_mapped().map(|v4| v4.is_loopback()).unwrap_or(false),
-    };
-    loopback.then(|| host.to_string())
+    let local = host.eq_ignore_ascii_case("localhost")
+        || match host.parse::<std::net::IpAddr>() {
+            Ok(std::net::IpAddr::V4(v4)) => v4.is_loopback(),
+            Ok(std::net::IpAddr::V6(v6)) => v6.is_loopback(),
+            Err(_) => false,
+        };
+    let path = if path.starts_with('/') { path.to_string() } else { format!("/{path}") };
+    Ok(HttpUrl { host, port, path, local })
 }
 
 impl ChainOracle for ZebradOracle {
@@ -449,8 +490,19 @@ mod trust_tests {
 
     #[test]
     fn only_a_node_on_this_machine_is_a_full_node() {
-        for u in ["http://127.0.0.1:8232", "http://localhost:8232", "http://[::1]:8232", "http://127.5.6.7/", "http://[::ffff:127.0.0.1]:8232"] {
+        for u in ["http://127.0.0.1:8232", "http://localhost:8232", "http://[::1]:8232", "http://127.5.6.7/", "http://LOCALHOST:8232/x?y#z"] {
             assert!(is_local_url(u), "{u}");
+        }
+        // One parse for trust and for the connection (review 2026-10-09, Issue E): what the
+        // socket layer could not use is not local either: a v4-mapped literal, garbage or
+        // out-of-range ports, whitespace, an unbalanced bracket, an IPv6 literal without
+        // brackets.
+        for u in [
+            "http://[::ffff:127.0.0.1]:8232", "http://[::ffff:7f00:1]:8232", "http://127.0.0.1:65536", "http://127.0.0.1:abc",
+            "http://127.0.0.1:8232\n", "http://127.0.0.1:8232\t", "http://[::1", "http://::1:8232", "http://[::1]:8232:9999",
+            "http://[localhost]:8232", "http://", "http:///x",
+        ] {
+            assert!(!is_local_url(u), "{u:?}");
         }
         // The bypasses of the first string test (audit 2026-10-08): userinfo, a DNS name that
         // starts with "127.", a name under localhost, https (nothing local is reached over TLS).

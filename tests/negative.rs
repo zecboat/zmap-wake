@@ -92,10 +92,10 @@ fn check(case: Case) {
         .and_then(|p| verify(kind, &p.proof, &p.instance).map_err(|e| e.to_string()));
     match result {
         Ok(()) => panic!("[{name}] a real proof VERIFIED. This is a forgery."),
-        Err(e) => assert!(
-            e.contains("does not verify") || e.contains("halo2"),
-            "[{name}] failed for an unexpected reason: {e}"
-        ),
+        // The proof must exist and then be refused by the real verifier. A prover error would
+        // mean the tampered witness never reached a verifier, which shows nothing about the
+        // constraint under test (review 2026-10-09, suggestion 8).
+        Err(e) => assert!(e.contains("does not verify"), "[{name}] failed for an unexpected reason: {e}"),
     }
 }
 

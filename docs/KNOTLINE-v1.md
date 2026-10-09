@@ -200,11 +200,17 @@ To narrow this, a reader that knows the block of a wanted transaction SHOULD fet
 shielded transactions together and keep the one it needs. The block is known: a hop's anchor
 height is the block its note was mined in, which is the block of the previous knot's
 transaction. This hides which transaction was wanted, not the block, and blocks often hold few
-shielded transactions. It holds against an honest server only: a server that answers the
-block list with nothing, or fails requests selectively, can learn the wanted id; so a hinted
-reader MUST make every request of the cover set whatever each answers, and MUST NOT fall back
-to asking for the wanted transaction by itself. It is a mitigation. An anonymising transport
-is the remedy and is outside this version.
+shielded transactions. It holds against an honest server only: a server that fails requests
+selectively can learn the wanted id; so a hinted reader MUST make every request of the cover
+set whatever each answers. When the hinted block holds nothing but the wanted transaction
+(a genesis often does), the reader SHOULD list the two blocks on either side and take its
+cover from them; only when those hold nothing either MAY it ask for the transaction by itself.
+An honest server learns nothing new from that ask, since its own block list named one
+candidate; a server that answers five block lists with nothing can force it, and learns the
+id. That trade, availability over resistance to an actively lying server, was chosen on
+2026-10-09 after a genesis alone in its block proved uncheckable through a provider under the
+earlier rule (reference: `COVER_SPAN` in `oracle_lightwalletd.rs`). It is a mitigation. An
+anonymising transport is the remedy and is outside this version.
 
 ## 8. When the Knotline is not used
 

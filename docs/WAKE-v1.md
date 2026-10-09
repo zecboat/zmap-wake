@@ -271,10 +271,14 @@ Given a lading, the note in hand (specifically its `ρ`), and an oracle the veri
 | W5 | the note in hand has `ρ == hops[last].instance[2]` | `RhoMismatch` |
 
 - `MIN_DEPTH` is 100 (`oracle.rs`). A proof against a shallower anchor is not wrong; it is
-  not yet safe. Depth is `tip − anchor_height` (§7.2 erratum); a prover cannot inflate it by
-  claiming a later height, because W2 asks the oracle for the root *at* that height. The
-  reference prover anchors each hop at the block in which that carrier was mined, so a freshly
-  received unit shows *too shallow* for about 100 blocks and then verifies, with no re-proving.
+  not yet safe. Depth is `tip − anchor_height` (§7.2 erratum). What binds `anchor_height` is
+  that W2 asks the oracle for the root *at* that height: a prover claiming a later height only
+  reduces its own depth, and an earlier height has a different root, except within a run of
+  blocks with no Ironwood outputs, where the root persists (on mainnet the root at heights
+  3,496,140 to 3,496,142 is the same). A prover may claim any height in such a run; the depth
+  it gets is then a lower bound on the true depth, which is the safe direction. The reference
+  prover anchors each hop at the block in which that carrier was mined, so a freshly received
+  unit shows *too shallow* for about 100 blocks and then verifies, with no re-proving.
 - **The basis of `MIN_DEPTH`, stated plainly: it is a policy value, not a finality rule.** It
   is the protocol's coinbase maturity (`MIN_TRANSPARENT_COINBASE_MATURITY` = 100), the depth
   at which Zcash itself lets outputs of a block be built on. It is not Zebra's reorg limit:
@@ -287,7 +291,8 @@ Given a lading, the note in hand (specifically its `ρ`), and an oracle the veri
   A verifier MAY require more; the reference does not offer less.
 - **Under a server (§8.1) the depth is the server's word**, as the tip and the roots are: a
   result obtained that way is reported as such, never as Verified.
-- **Order.** A verifier runs the checks that need no oracle first (decoding, W4, W5, W3) and
+- **Order.** A verifier runs the checks that need no oracle first (decoding, then W3, W4, W5
+  in that order; when several would fail, the first in this order is the one named) and
   W1 and W2 after them, so a forged lading fails as forged (`BadProof`, `ChainBreak`,
   `RhoMismatch`) and the oracle is never asked about heights or outputs a forger chose; "too
   shallow" is reported only when everything else passed.
@@ -348,7 +353,11 @@ checked at all. Zecboat 0.7.1 reports it as `ProviderChecked`, "via your provide
   sealing each hop; what a chain server can still observe is set out in `KNOTLINE-v1.md` §7.
 - **A free `nk` gives a note many valid proofs, and still one successor.** `WAKE_HOP` does not
   constrain `nk` by `CommitIvk` (§4.3), so for one note, one anchor and one `ρ`, a prover can
-  produce valid proofs for many different `nf`. That is by design, and harmless, by the
+  produce valid proofs for many different `nf`. A consequence to state plainly: a valid proof
+  needs the note's opening `(g_d, pk_d, v, ρ, ψ, rcm)` and an authentication path, and no key
+  of the note's holder; the sender of a carrier, or anyone holding a published viewing key
+  that opens the note, can make one. A proof's existence says nothing about who made it
+  (review 2026-10-09). That is by design, and harmless, by the
   following reduction (the reference's argument, not yet externally reviewed; §11 question 1):
   a *later* hop needs an Ironwood action that revealed that `nf` and created the next note. That
   action's spend proof binds its `nk` to its `pk_d` through `CommitIvk` and `[ivk] g_d` (sound
@@ -440,8 +449,12 @@ Critical and left these questions for the external reviewer, in order:
 6. **Deleted gates, remaining columns.** After removing `q_orchard`, `CommitIvk`, the second
    `NoteCommit` and the variable-base multiplication, are any selectors still enabled whose
    gates assume a row layout that no longer holds at `K = 11`?
-7. **Zero knowledge.** Nothing about `pos`, `path`, `v`, `pk_d` leaks beyond the instance, and
-   `anchor` plus `anchor_height` do not let the recipient narrow the note's position.
+7. **Zero knowledge.** The *proof* must reveal nothing beyond the instance about `g_d`,
+   `pk_d`, `v`, `ψ`, `rcm`, `nk`, the path siblings and the position. (The *lading* already
+   tells the recipient which action created each hop's note, since `nf_prev` in the instance is
+   the nullifier that action revealed, so "the note's position" is not what the proof has to
+   hide; §9 says what a lading reveals.) Blinding rows at `K = 11`: `blinding_factors() = 5`,
+   usable rows 2,042, rows used 1,289 (`CONSTRAINTS.md` §0).
 
 The full argument behind each is in the review file.
 

@@ -161,3 +161,21 @@ all it ever caught.
 
 Still open from that review, for the external one: negative tests for the kept gadgets with a
 malicious synthesizer.
+
+## A second internal automated review (2026-10-09)
+
+A second automated review, by a different model from the first, read the circuit and verifier
+at `a39ac96` (wallet `d5c6df8`), probed the kept gadgets under a malicious synthesizer in a
+scratch copy, dumped the pinned verifying keys afresh (byte-identical), accounted for the
+blinding rows, verified the published vector against a full node and a public light server,
+and checked zebrad's JSON action order against the raw bytes. It found no soundness issue. It
+found, and the next commit closes: the issuance badge green on a provider-checked lineage
+(WAKE §8.1(c)); the zebrad path reading actions from JSON rather than the checked hex; heights
+from a light server unbounded or substituted; a genesis alone in its block uncheckable through
+a provider under the cover rule (KNOTLINE §7 now widens the cover); two URL parsers; and six
+points of specification wording. Its questions for a human auditor are merged into the list
+above where they were new (the free-`nk` reduction's completeness; non-canonical Merkle node
+encodings; Sinsemilla incomplete-addition cases after the deletion; blinding sufficiency for
+this query profile; transcript binding of the instance in the IPA verifier; full-width `rcm`
+window aliasing; whether 100 blocks is the right `MIN_DEPTH` for a provider-checked result).
+Neither automated review is an external review in the sense of `WAKE-v1.md` §11 item 4.

@@ -294,10 +294,14 @@ fn cmd_verify(args: &Args) -> Result<()> {
     let _ = pallas_check(&rho_bytes);
     match verify_chain(&bytes, hash, &rho, &args.zebrad(), MIN_DEPTH) {
         Ok(v) => {
+            // WAKE-v1 §8.1 state names, so a copied log line cannot say more than the result does.
+            let state = match v.trust {
+                zmap_wake::oracle::OracleTrust::FullNode => "Verified (own node)",
+                zmap_wake::oracle::OracleTrust::ServerAsserted => "Checked via provider (not verified: the chain's answers are a server's word)",
+            };
             println!(
-                "VERIFIED: {} proof(s), trust {:?}, genesis cmx {}, shallowest anchor {} deep",
+                "{state}: {} proof(s), genesis cmx {}, shallowest anchor {} deep",
                 v.hops,
-                v.trust,
                 hex(&v.genesis_cmx),
                 v.min_anchor_depth
             );
