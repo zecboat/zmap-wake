@@ -400,3 +400,31 @@ strongest negative issuance verdict, and whether "closed" makes a manifest exhau
 a light server's "not known" may be classed as the source's failure when the stranger chose
 the transaction asked for, or a second source should be asked; and the orchard and halo2
 findings of 2026 against the kept gadgets.
+
+## The gate's sixth pass (2026-10-09, over hardening 12 to 20)
+
+A twelfth session re-read hardening 12 to 20 and catch-up 7 to 15, with the drop-box removal
+as its first question, and found it complete in code: no path, setting, environment variable
+or control names a drop-box. It found no Critical or High issue, and one Medium: hardening
+20's red "not issued by" answer for a memo naming a known key had been placed after the older
+amber "registered but not checked yet" answer, which catches every registered key once the
+wallet has scanned the Registry, the pinned ones included, so the red answer never fired and a
+forgery dressed as a pinned collection read amber, named after the genuine collection, with a
+Check that could never clear it. The previous pass had rated the same item Low; this one
+rates it Medium because hardening 20 claimed it fixed. Hardening 21 moves the decision ahead
+of the amber branch, as one pure function of what the holder's memos claim, and tests that
+order with the pinned collection also registered; it also follows the newest-audit rule, so
+an older pass never outranks a newer failure, and reads every holder memo. Its other findings,
+Low and Informational: with no manifest genesis the oracle-free checks were skipped too, so a
+failing lading of an unknown asset read "unverified" rather than Broken (fixed: those checks
+run whatever the manifest says); a send whose record is not in the transfer could lose that
+record for good on a local write failure after signing, with nothing shown (fixed: the sealed
+file is written from memory before any database write, the sender's copy is stored before the
+lineage row, and the confirmation says beforehand when a record will not travel); the
+broadcast reply is now read under a bound; opening the send of an asset no manifest lists
+walks its lines, which KNOTLINE §6 now counts as asking; row 9 said grey for an amber state.
+Its questions for a human auditor: whether a pinned key's manifest is exhaustive when check
+9's completeness rests on a provider's scan; whether a lading whose proofs verify but whose
+asset has no manifest genesis deserves a state of its own; the 2026 orchard and halo2
+findings against the kept gadgets in the pinned versions; and whether a lineage record must
+be persisted before the transaction is stored.

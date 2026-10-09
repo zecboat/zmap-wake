@@ -165,7 +165,7 @@ When a carrier arrives whose memo commits to a lading the wallet does not hold:
    a carrier whose asset is **listed** in a manifest the wallet holds and has verified (a
    passed registry audit's chain copy, or a copy built into the wallet); a memo that merely
    names a trusted key is no reason, since anyone can write one. Any other carrier's walk is
-   offered on demand. Each walk runs under its own time and byte budget, so one line cannot
+   offered on demand (opening the send of such an item counts as asking). Each walk runs under its own time and byte budget, so one line cannot
    spend another's; a pass that runs out of time records nothing against carriers it did not
    reach; a walk nobody asked for MUST NOT hold the display of holdings or a send; a failed line
    SHOULD back off with a growing delay that survives a restart, applied to the walk only (the
