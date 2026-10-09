@@ -213,13 +213,20 @@ impl LightwalletdOracle {
                         let id = BlockId { height: h as u64, hash: vec![] };
                         let range = BlockRange { start: Some(id.clone()), end: Some(id), pool_types: vec![] };
                         let mut others: Vec<Vec<u8>> = Vec::new();
-                        if let Ok(resp) = c.get_block_range(range).await {
-                            let mut stream = resp.into_inner();
-                            if let Ok(Some(block)) = stream.message().await {
+                        // A server that does not answer is not a wrong hint: that is the
+                        // source's failure, reported as transient (review 2026-10-09,
+                        // regression over 12-15, Issue F). A block that answers without the
+                        // transaction is the line author's.
+                        let resp = c.get_block_range(range).await.map_err(|e| anyhow!("transient: could not list block {h}: {e}"))?;
+                        let mut stream = resp.into_inner();
+                        match stream.message().await {
+                            Ok(Some(block)) => {
                                 let all: Vec<Vec<u8>> = block.vtx.into_iter().map(|t| t.txid).filter(|t| t.len() == 32).collect();
                                 listed = all.iter().any(|t| *t == want);
                                 others = all.into_iter().filter(|t| *t != want).collect();
                             }
+                            Ok(None) => return Err(anyhow!("transient: the server listed nothing for block {h}")),
+                            Err(e) => return Err(anyhow!("transient: could not list block {h}: {e}")),
                         }
                         if !listed {
                             return Err(anyhow!("block {h} does not list the transaction the hint named it for; the hint is wrong"));

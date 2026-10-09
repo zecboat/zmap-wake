@@ -256,3 +256,25 @@ rho-uniqueness argument for the chaining rule needs any assumption beyond nullif
 mempool and relay limits for a six-proof start of line; what else in a compact block
 distinguishes a knot transfer; whether OVK recovery of knot outputs is the right default.
 
+## The gate pass (2026-10-09, over hardening 12 to 15)
+
+A seventh session re-read hardening 12 to 15 as the release gate. The WAKE verifier: no
+Medium or worse. The lading path: three Medium, each the case beside one a fix had closed. The
+"known asset" gate of hardening 15 accepted a memo that merely named a pinned key; the
+"never absent" rule of hardening 14 covered a walk in progress but not a failed or backing-off
+one, so a send could still be offered unproven and strip the memo's hash; the ranking of
+hardening 14 needed the manifest's genesis from the network at send time, so with the registry
+unreachable a copy with a self-made lading outranked a genuine first-holder unit. Hardening 16
+answers them: a known asset is one *listed* in a manifest the wallet holds and has verified;
+those manifests come from the chain (the audit's copy) or are built into the wallet, and the
+website is never asked (the owner's rule: verification is from the network, not the site);
+each walk has its own budget and a pass that runs out records nothing against carriers it did
+not reach; a send of a unit whose memo commits to an uncollected lading is refused, with an
+explicit abandon only under its own warning; several copies are sent only when exactly one
+checks out against the manifest's genesis, never by a txid tie-break; the back-off holds the
+walk only; a self-send re-walk runs the same local checks; a server that did not answer is a
+transient failure, not a wrong hint; the issuer refusal fails closed against the built-in
+issuance keys. Its questions for a human auditor: whether storing a lading should require the
+genesis to match a trusted manifest when one exists (`verify_local` accepts any genesis), and
+whether an unproven send should ever be possible for a carrier whose memo commits to a hash.
+

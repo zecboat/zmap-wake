@@ -162,11 +162,18 @@ When a carrier arrives whose memo commits to a lading the wallet does not hold:
    is a round trip to the chain source), MUST refuse a has-previous knot with more than one hop
    and a has-genesis knot with more than a stated number of hops (reference: 64), and MUST
    bound the bytes a walk holds (reference: 8 MB). A wallet SHOULD walk automatically only for
-   a carrier whose asset a trusted manifest or a passed registry audit names, and offer the
-   walk on demand for any other carrier; a walk nobody asked for MUST run under a time and byte
-   budget, MUST NOT hold the display of holdings or a send, and a failed line SHOULD back off
-   with a growing delay that survives a restart (review 2026-10-09). The send collects only
-   the carrier being sent. "The source does not know the
+   a carrier whose asset is **listed** in a manifest the wallet holds and has verified (a
+   passed registry audit's chain copy, or a copy built into the wallet); a memo that merely
+   names a trusted key is no reason, since anyone can write one. Any other carrier's walk is
+   offered on demand. Each walk runs under its own time and byte budget, so one line cannot
+   spend another's; a pass that runs out of time records nothing against carriers it did not
+   reach; a walk nobody asked for MUST NOT hold the display of holdings or a send; a failed line
+   SHOULD back off with a growing delay that survives a restart, applied to the walk only (the
+   transfer's own memos and a named drop-box are still read); a source that did not answer is
+   not a failed line and gets a short, flat delay. The send collects only the carrier being
+   sent, and a carrier whose memo commits to a lading the wallet has not collected is NOT sent
+   as unproven by default: the lading exists; abandoning it is a separate choice under its own
+   warning (review 2026-10-09, regression over 12-15). "The source does not know the
    transaction" and "the key opens no knot in it" are different outcomes and MUST be reported
    as such; neither is "broken".
 4. Build the lading: the genesis outpoint of the first knot, then every hop in order from the

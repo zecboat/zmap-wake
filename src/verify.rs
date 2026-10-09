@@ -192,6 +192,7 @@ pub struct Verified {
 /// A wallet MUST run this before storing a lading from any route (Knotline, memos, file,
 /// drop-box): a lading that fails is evidence about its sender, never "the lading for" a
 /// carrier (review 2026-10-09, regression Finding 1). Returns the parsed lading and its proofs.
+/// Passing here does not say the genesis is the issuer's: that is the caller's manifest check.
 pub fn verify_local(
     lading_bytes: &[u8],
     expected_hash: Option<[u8; 32]>,
@@ -276,6 +277,15 @@ mod local_tests {
     }
 }
 
+/// Verify a delivered lading against the note in hand and a chain oracle: [`verify_local`]
+/// first (hash, canonical form, decoding, W3, W4, W5), then W1 (the genesis output is on
+/// chain with the stated commitment) and W2 (every anchor is a real root at its height, at
+/// least `min_depth` deep). Every failure is named; success needs every check.
+///
+/// What passing says, exactly: the note descends through on-chain spends from the genesis
+/// output the **lading** names. Whether that genesis is the one an issuer designated is the
+/// caller's comparison with a trusted manifest, not this function's (every note has a
+/// provable history from many ancestors; see WAKE-v1 section 9).
 pub fn verify_chain(
     lading_bytes: &[u8],
     expected_hash: Option<[u8; 32]>,
