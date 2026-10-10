@@ -439,8 +439,8 @@ under the asset id from raw JSON, so a stranger's single carrier note with a bar
 named after a pinned collection (shown by a probe). Hardening 22 answers it at the root: a
 memo claims a key only when its `ik` and `desc` derive the asset id (ZMAP §4), so a claim
 cannot cross from one key's asset to another's; and half a v1 memo, `ik` without `desc` or
-the reverse, is no unit at all. The decision's glue is now a pure function with the decoy
-beside a genuine memo as a test. The pass's two Lows are answered as well: "a key this wallet
+the reverse, is no unit at all. The decision's glue is now a pure function, tested with the decoys
+(the genuine-memo case was added by the next hardening). The pass's two Lows are answered as well: "a key this wallet
 knows" is scoped per registration, so a key reused for a second, unchecked collection is not
 exhaustive for it and an audit cached without its manifest does not count; and a key whose
 newest audit failed is red "check failed", not amber "not checked yet". Its remaining items:
@@ -450,3 +450,33 @@ helper is gone. Left as cost: the oracle-free checks re-run on every badge view 
 unlisted asset's lading. The pass's questions for a human auditor: whether a per-asset
 issuance verdict computed from memos is sound at all, or must be per carrier and tied to the
 lineage; and the 2026 orchard and halo2 findings against the kept gadgets.
+
+## The gate's eighth pass (2026-10-09, over hardening 12 to 22)
+
+A fourteenth session re-read hardening 12 to 22 and catch-up 7 to 17, probed hardening 22's
+claims and found them to hold: a memo claims a key only when it derives the asset id, the
+parser refuses half a v1 memo, "knows" is per registration. No Critical or High. Two Medium,
+neither opened by hardening 22: a stranger's bare copy beside a unit that has no lineage at
+all (an Orchard-pool unit, one from a pre-0.7 sender, a collection not yet audited) made the
+send refuse for good, since hardening 16, with no way for the holder to say which copy is
+theirs; and the audit's value check counted a flow that spent none of the account's notes,
+so anyone able to craft an output under the published OVK could fail a registry collection's
+audit, which hardening 22's "check failed" answer then painted red on every genuine unit of
+that collection. Hardening 23 answers both: when no copy checks out, the user names the copy
+to send, by outpoint with each copy's own state beside it, and the unproven acknowledgement
+applies to that copy; the value check applies the same stranger rule as the rest of the
+audit, a flow that spent none of the account's notes is noted and never fails; and a failed
+newest audit is amber on an item badge, naming the check, never that unit's forgery red. The
+pass's Lows: a pinned key is declared single-collection in ZMAP §4, so its built-in manifest
+is exhaustive without a registry scan; the item's display fields come from a v1 memo whenever
+one is held, and carrier rows are read in a fixed order; a read-back failure after the signed
+transaction is stored says that it is stored and will go out with the next send; the node
+oracle bounds the height it reads and treats a missing one as the node's failure. The tests
+it asked for were added: the decoy beside a genuine memo, the failed and manifest-less audit
+cases, the cache-key split. Also closed from the sub-pass: a source that calls the manifest's
+block a wrong hint is no longer asked again without the hint, which would have handed it the
+transaction by id on its own say-so. Its questions for a human auditor: whether an issuance
+verdict should be per carrier and tied to the lineage rather than per asset from memos;
+whether a registry audit should run over an account whose viewing key is published at all;
+the 2026 orchard and halo2 findings against the kept gadgets; and whether OVK recovery of any
+decryptable action as "outgoing" is the intended meaning for audit tools.

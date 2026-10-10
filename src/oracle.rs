@@ -236,8 +236,16 @@ impl ZebradOracle {
     /// in depth, for a zebrad reached over a network it is the same check the light path makes).
     fn checked_transaction(&self, txid_hex: &str) -> Result<Option<(u32, Vec<u8>, zcash_primitives::transaction::Transaction)>> {
         let Some(v) = self.get_mined_transaction(txid_hex)? else { return Ok(None) };
-        let Some(height) = v.get("height").and_then(Value::as_u64) else {
-            return Ok(None);
+        // A negative height is the node's word for "not mined" (in the mempool); no height at
+        // all is an answer in an unexpected shape, the node's failure, never "not on chain";
+        // and the height must fit (gate eighth pass, Issue F).
+        let height = match v.get("height") {
+            None => bail!("{TRANSIENT} getrawtransaction: no height"),
+            Some(h) if h.as_i64().map(|n| n < 0).unwrap_or(false) => return Ok(None),
+            Some(h) => match h.as_u64().and_then(|n| u32::try_from(n).ok()) {
+                Some(n) => n,
+                None => bail!("{TRANSIENT} getrawtransaction: height {h} is not a block height"),
+            },
         };
         let hex = v.get("hex").and_then(Value::as_str).ok_or_else(|| anyhow!("{TRANSIENT} getrawtransaction: no hex"))?;
         let raw = decode_hex(hex).context(format!("{TRANSIENT} getrawtransaction: hex"))?;
@@ -245,14 +253,14 @@ impl ZebradOracle {
         // (audit 2026-10-08, Knotline G): a node reached over a network is somebody's server.
         let branch = zcash_protocol::consensus::BranchId::for_height(
             &zcash_protocol::consensus::MainNetwork,
-            zcash_protocol::consensus::BlockHeight::from_u32(height as u32),
+            zcash_protocol::consensus::BlockHeight::from_u32(height),
         );
         let tx = zcash_primitives::transaction::Transaction::read(&raw[..], branch).context(format!("{TRANSIENT} parse transaction"))?;
         let asked = decode_hex_32(txid_hex)?;
         if tx.txid().as_ref() != &reversed(asked) {
             bail!("{TRANSIENT} the node answered with a different transaction than the one asked for");
         }
-        Ok(Some((height as u32, raw, tx)))
+        Ok(Some((height, raw, tx)))
     }
 
     /// The Ironwood Actions of a mined transaction, and the height it was mined at, read from
