@@ -480,3 +480,29 @@ verdict should be per carrier and tied to the lineage rather than per asset from
 whether a registry audit should run over an account whose viewing key is published at all;
 the 2026 orchard and halo2 findings against the kept gadgets; and whether OVK recovery of any
 decryptable action as "outgoing" is the intended meaning for audit tools.
+
+## The final gate (2026-10-10, the whole at hardening 23)
+
+A fifteenth session judged the whole tree at hardening 23 from the stranger's position, with
+the authors' own adversarial review among its inputs. No Critical or High; nothing Medium in
+the WAKE verifier; the issuance and lineage verdicts of a held unit cannot be changed by
+anything a stranger sends, as the authors' table said. Three Medium in the surrounding
+dialog and item view, each real: the consent to abandon a lineage was a bare yes that
+outlived the dialog, so a tick given for one copy applied to whatever was sent next; the
+display-field rule of hardening 23 covered only the prose dialect, so a stranger's JSON memo
+without a key, received first, named a genuine pinned unit and turned its artwork mark red;
+and the copy chooser showed transaction ids in the database's byte order, so the choice it
+asked for could not be made from what a holder knows. Hardening 24 answers the three as one
+change with their tests: the consent carries the hash it was given for and applies to that
+record alone, and every consent and notice is cleared by a cancel, a new review or a change
+of copy; the display fields come from a memo whose key and description derive the asset id
+whenever one is held, whatever arrived first; the chooser shows ids as History shows them and
+says which copy was received first, and is refused once a copy checks out. Two Lows on the
+same code closed with them: the stale fee bound, and a held lading whose genesis is not the
+manifest's is never extended. Stated, not changed: the sender's new hop is anchored at the
+tree state its chain source gives (row 4); decoys received first can delay a unit's first
+collection (row 12); name folding misses accented letters (0.7.2). The session's questions
+for a human auditor: the kept gadgets against the 2026 orchard and halo2 findings; whether
+§9's free-nk argument is complete; whether an anchor no block ever had should be Broken
+against one's own node; and whether any lading can pass W1-offline, W3, W4 and W5 for a note
+not descended from the genesis.

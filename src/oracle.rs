@@ -62,8 +62,9 @@ pub fn is_transient(message: &str) -> bool {
 
 /// The hint a caller gave for a fetch did not match what the server reported: the hinted
 /// block is above the tip, does not list the transaction, or the server places the transaction
-/// in another block. The hint is wrong, not the server; a caller may ask again without one
-/// (review 2026-10-09, gate second pass, Issue B). A message marker, for the same reason.
+/// in another block. The hint is wrong, not the server, or the server contradicts the fact
+/// the hint came from; the caller decides which (review 2026-10-09, gate second pass, Issue B;
+/// eighth pass). A message marker, for the same reason.
 pub const WRONG_HINT: &str = "the hint is wrong";
 
 /// Whether an error message says the caller's hint was wrong (see [`WRONG_HINT`]).

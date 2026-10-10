@@ -125,8 +125,9 @@ impl LightwalletdOracle {
     /// C) a hint is also checked: a hinted block above the tip or not listing the transaction,
     /// or a reported height that differs from it, fails the fetch with a message
     /// [`crate::oracle::is_wrong_hint`] recognises, so that a line whose author lied about a
-    /// knot's block is not walked on. A caller whose hint was only a guess, not a Knotline
-    /// fact (the W1 genesis fetch), must then ask again without one (gate second pass, Issue B).
+    /// knot's block is not walked on. A caller whose hint came from a signed manifest (the W1
+    /// genesis fetch) treats that as the source contradicting the manifest, and does not ask
+    /// again without the hint (gate second pass, Issue B; eighth pass).
     pub fn hint_height(&self, txid: &[u8; 32], height: u32) {
         self.hints.borrow_mut().insert(*txid, height);
     }
