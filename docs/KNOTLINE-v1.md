@@ -26,9 +26,8 @@ The key words MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
 
 WAKE gives a note a lading: the list of proofs that it descends from a named genesis output.
 ZMAP v0.5 §15 requires the lading to reach the next holder, and until now it travelled outside
-the chain: as a sealed file, which is a manual step (the 0.7.0 draft's drop-box, whose operator
-saw the network address of both parties, was removed before any release). Carrying the whole lading inside the transfer removes the third
-party but resends every proof on every transfer.
+the chain, as a sealed file moved by hand. Carrying the whole lading inside the transfer
+removes that step but resends every proof on every transfer.
 
 The Knotline carries the lading **on the chain, one proof per transfer**:
 
